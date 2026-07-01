@@ -10,7 +10,7 @@ The project follows `SPEC.md`. Version 0 uses Python and the official OpenAI Pyt
 
 ## Setup
 
-Create and activate a Python environment, then install the project once dependencies are available:
+Create and activate a Python environment, then install the project and its dependencies:
 
 ```bash
 python -m pip install -e .
@@ -30,12 +30,14 @@ export OPENAI_MODEL="gpt-5-mini"
 
 If `OPENAI_MODEL` is not set, the implementation will use its default model constant.
 
-## CLI
+## Run The Agent
 
-The intended command is:
+This repository includes a small sample task in `task/`. Its `solution.py` is intentionally wrong, so the agent has something concrete to repair.
+
+From the repository root, run:
 
 ```bash
-python -m cp_agent solve examples/two_sum_bug
+python -m cp_agent solve task --verbose
 ```
 
 Supported flags:
@@ -47,7 +49,13 @@ Supported flags:
 --verbose
 ```
 
-The CLI validates the task directory, constructs the OpenAI SDK-backed model client, and runs the local tool loop. Example tasks and trace logging are later milestones.
+The CLI validates the task directory, constructs the OpenAI SDK-backed model client, and runs the local tool loop. The model can only use the four safe tools from `SPEC.md`: `list_files`, `read_file`, `write_solution`, and `run_tests`.
+
+If you are using the checked-in virtual environment on this machine, the command is:
+
+```bash
+.venv/bin/python -m cp_agent solve task --verbose
+```
 
 ## Task Shape
 

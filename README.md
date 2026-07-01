@@ -51,6 +51,34 @@ Supported flags:
 
 The CLI validates the task directory, constructs the OpenAI SDK-backed model client, and runs the local tool loop. The model can only use the four safe tools from `SPEC.md`: `list_files`, `read_file`, `write_solution`, and `run_tests`.
 
+## Agent Parameters
+
+You can tune the agent from the command line:
+
+```bash
+uv run python -m cp_agent solve task \
+  --max-iterations 8 \
+  --timeout-seconds 3 \
+  --trace-file trace.jsonl \
+  --verbose
+```
+
+Parameters:
+
+- `--max-iterations`: maximum number of model/tool loop iterations before the agent stops. Default: `5`.
+- `--timeout-seconds`: timeout for each sample test execution. Default: `2`.
+- `--trace-file`: path reserved for JSONL trace output. Default: `trace.jsonl`.
+- `--verbose`: prints more progress information during the run.
+
+Model selection is controlled by environment variables:
+
+```bash
+export OPENAI_API_KEY="..."
+export OPENAI_MODEL="gpt-5-mini"
+```
+
+`OPENAI_API_KEY` is required. `OPENAI_MODEL` is optional; if it is not set, the code uses its default model constant.
+
 You can also run through the `.venv` Python after `uv sync` has installed the project:
 
 ```bash

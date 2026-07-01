@@ -175,6 +175,7 @@ class CliValidationTests(unittest.TestCase):
         self.assertIn("Status: success", stdout)
         self.assertIn("Iterations: 1", stdout)
         self.assertIn("Tests: 1/1 passed", stdout)
+        self.assertNotIn("I am using", stdout)
         self.assertTrue(trace_exists)
 
     def test_accepts_supported_solve_flags(self):
@@ -203,6 +204,17 @@ class CliValidationTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
         self.assertIn("Status: success", stdout)
+        self.assertEqual(
+            stdout.splitlines(),
+            [
+                "[1] I am using run_tests() because "
+                "test feedback tells me what is failing.",
+                "[1] Tests: 1/1 passed",
+                "Status: success",
+                "Iterations: 1",
+                "Tests: 1/1 passed",
+            ],
+        )
         self.assertTrue(trace_exists)
 
     def test_openai_client_error_is_reported_without_secret(self):

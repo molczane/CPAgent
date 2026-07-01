@@ -159,6 +159,8 @@ def solve(
                 max_iterations=args.max_iterations,
                 timeout_seconds=args.timeout_seconds,
                 trace_file=args.trace_file,
+                verbose=args.verbose,
+                progress_stream=stdout if args.verbose else None,
             ),
         ).run()
     except OpenAIClientError as exc:

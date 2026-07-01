@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import sys
 import tempfile
@@ -66,6 +67,7 @@ class AgentLoopFakeModelTests(unittest.TestCase):
             root = Path(tmp)
             task = self.make_task(root)
             trace_file = root / "trace.jsonl"
+            progress = io.StringIO()
             agent = Agent(
                 task,
                 fake_model,
@@ -73,6 +75,8 @@ class AgentLoopFakeModelTests(unittest.TestCase):
                     max_iterations=6,
                     python_executable=sys.executable,
                     trace_file=trace_file,
+                    verbose=True,
+                    progress_stream=progress,
                 ),
             )
 
@@ -80,6 +84,7 @@ class AgentLoopFakeModelTests(unittest.TestCase):
 
             solution = (task / "solution.py").read_text(encoding="utf-8")
             backup = (task / ".solution.py.bak").read_text(encoding="utf-8")
+            progress_lines = progress.getvalue().splitlines()
             trace_events = [
                 json.loads(line)
                 for line in trace_file.read_text(encoding="utf-8").splitlines()
@@ -101,6 +106,23 @@ class AgentLoopFakeModelTests(unittest.TestCase):
             "write_solution",
             "run_tests",
         ])
+        self.assertEqual(
+            progress_lines,
+            [
+                "[1] I am using read_file(statement.md) because "
+                "I need to understand the task statement.",
+                "[2] I am using read_file(solution.py) because "
+                "I need to inspect the current solution.",
+                "[3] I am using run_tests() because "
+                "test feedback tells me what is failing.",
+                "[3] Tests: 0/1 passed",
+                "[4] I am using write_solution because "
+                "I have a candidate fix for solution.py.",
+                "[5] I am using run_tests() because "
+                "I need to verify the updated solution.",
+                "[5] Tests: 1/1 passed",
+            ],
+        )
 
         tool_messages = [
             message for message in result.messages if message["role"] == "tool"

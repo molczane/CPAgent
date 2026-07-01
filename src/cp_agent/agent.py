@@ -4,7 +4,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TextIO
 
 from . import test_runner
 from .prompts import SYSTEM_PROMPT, initial_user_message
@@ -51,6 +51,8 @@ class AgentConfig:
     max_tool_output_chars: int = DEFAULT_MAX_TOOL_OUTPUT_CHARS
     python_executable: str | None = None
     trace_file: str | Path | None = None
+    verbose: bool = False
+    progress_stream: TextIO | None = None
 
 
 @dataclass
@@ -131,6 +133,10 @@ class Agent:
                 return result
 
             for tool_call in model_response.tool_calls:
+                self.write_progress(
+                    iteration,
+                    tool_progress_message(tool_call, modified=modified),
+                )
                 self.write_trace(
                     {
                         "type": "tool_call",
@@ -164,6 +170,11 @@ class Agent:
                     modified = True
                 if tool_call.name == "run_tests" and result.get("ok"):
                     last_test_result = result
+                    progress_passed, progress_total = test_counts(result)
+                    self.write_progress(
+                        iteration,
+                        f"Tests: {progress_passed}/{progress_total} passed",
+                    )
                     self.write_trace(
                         {
                             "type": "test_summary",
@@ -208,6 +219,12 @@ class Agent:
         if self.trace:
             self.trace.write(event)
 
+    def write_progress(self, iteration: int, message: str) -> None:
+        if not self.config.verbose:
+            return
+        stream = self.config.progress_stream or sys.stdout
+        print(f"[{iteration}] {message}", file=stream, flush=True)
+
     def write_final_trace(self, result: AgentResult) -> None:
         event: dict[str, Any] = {
             "type": "final",
@@ -220,6 +237,54 @@ class Agent:
         if result.reason:
             event["reason"] = result.reason
         self.write_trace(event)
+
+
+def tool_progress_message(tool_call: ToolCall, *, modified: bool) -> str:
+    return (
+        f"I am using {tool_call_display(tool_call)} because "
+        f"{tool_call_reason(tool_call, modified=modified)}."
+    )
+
+
+def tool_call_display(tool_call: ToolCall) -> str:
+    if tool_call.name in {"list_files", "run_tests"}:
+        return f"{tool_call.name}()"
+    if tool_call.name == "read_file":
+        path = tool_call.args.get("path")
+        if isinstance(path, str) and path:
+            return f"read_file({compact_display_value(path)})"
+        return "read_file"
+    if tool_call.name == "write_solution":
+        return "write_solution"
+    return compact_display_value(tool_call.name)
+
+
+def tool_call_reason(tool_call: ToolCall, *, modified: bool) -> str:
+    if tool_call.name == "list_files":
+        return "I need to see which task files are available"
+    if tool_call.name == "read_file":
+        path = tool_call.args.get("path")
+        if path == "statement.md":
+            return "I need to understand the task statement"
+        if path == "solution.py":
+            return "I need to inspect the current solution"
+        if isinstance(path, str) and path.startswith("tests/"):
+            return "I need to inspect the sample tests"
+        return "I need to inspect a permitted workspace file"
+    if tool_call.name == "write_solution":
+        return "I have a candidate fix for solution.py"
+    if tool_call.name == "run_tests":
+        if modified:
+            return "I need to verify the updated solution"
+        return "test feedback tells me what is failing"
+    return "this is the next requested local action"
+
+
+def compact_display_value(value: str, max_chars: int = 80) -> str:
+    text = value.replace("\n", "\\n").replace("\r", "\\r")
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3] + "..."
 
 
 def model_message(model_response: ModelResponse) -> dict[str, Any]:

@@ -129,22 +129,24 @@ Implement the bounded filesystem wrapper and the exact four tools exposed to the
 
 ### Goal
 
-Add trace JSONL and human-readable progress before introducing the real model loop, so all later behavior is observable.
+Add trace JSONL and human-readable progress so model/tool loop behavior is observable without calling the OpenAI API in tests.
 
 ### Files to Create or Modify
 
 - Create `src/cp_agent/trace.py`
 - Modify `src/cp_agent/cli.py`
-- Modify `src/cp_agent/tools.py` if tool calls should emit trace/progress events through a shared callback.
+- Modify `src/cp_agent/agent.py` so trace events are emitted around model requests, model responses, tool calls, tool results, test summaries, and final status.
+- Modify `src/cp_agent/tools.py` only if tool-result summarization needs local helper support.
 - Create `tests/test_trace.py`
-- Extend `tests/test_tools.py` where tool event logging is easiest to verify.
+- Extend `tests/test_agent_loop_fake_model.py` and `tests/test_cli_validation.py` to verify trace files are written during fake-model runs.
 
 ### Tests Required
 
 - Default trace path is `trace.jsonl`.
 - `--trace-file` overrides the trace path.
 - Each trace line is one valid JSON object.
-- Trace records model request, tool call, tool result, test summary, and final events.
+- Trace records model request, model response, tool call, tool result, test summary, and final events.
+- Tool result trace events summarize outputs rather than logging full file contents or large stdout/stderr payloads.
 - Trace does not include `OPENAI_API_KEY` or other environment secrets.
 - Verbose mode prints workshop-friendly progress for model requests, tool calls, test summaries, solution writes, success, and failure.
 - Non-verbose mode keeps output concise.
@@ -153,6 +155,7 @@ Add trace JSONL and human-readable progress before introducing the real model lo
 
 - Trace writer can append events throughout the CLI, tool layer, and agent loop.
 - Secret redaction is covered by tests.
+- Fake-model integration tests prove trace output without OpenAI.
 - Verbose output format is stable enough for live demo narration.
 - Trace and verbose plumbing are present without needing the OpenAI API.
 
@@ -309,7 +312,7 @@ Verify the v0 done criteria and remove accidental complexity before considering 
 - `read_file` says to limit and truncate large files, but does not define the exact warning field. Use a stable shape such as `{"ok": true, "truncated": true, "warning": "...", ...}` and document it in tests.
 - `run_tests` says normalize trailing whitespace per line and final trailing newlines. The exact normalization helper should be shared by expected and actual output and covered by focused tests.
 - `write_solution` creates `.solution.py.bak`; the spec does not say whether to overwrite an existing backup on later writes. A simple v0 behavior is to overwrite the backup with the immediately previous `solution.py` before each write.
-- `trace.jsonl` default location is not explicitly scoped. Writing it in the current working directory may be surprising; writing it where the CLI is invoked matches the flag shape. It should not be placed inside task directories if that would pollute examples during demos.
+- `trace.jsonl` should be written to the CLI-provided path, resolved relative to the process working directory when relative. Starting a run may replace the previous trace file at that path; this should be documented in README and tests should avoid polluting example task directories.
 - `FR-010` allows either asking the model for a final explanation after passing tests or stopping with success. For simplicity and reliability, v0 can stop with success immediately after all tests pass, optionally preserving the latest model text if available.
 - The OpenAI SDK has multiple API surfaces. The implementation should pick one official, current surface and keep conversion isolated in `openai_client.py` so tests can fake it.
 - The spec allows an optional live smoke test but requires normal tests to avoid OpenAI. CI and local default test commands must skip live tests unless `RUN_OPENAI_SMOKE=1`.

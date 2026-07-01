@@ -63,13 +63,16 @@ class AgentLoopFakeModelTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp:
-            task = self.make_task(Path(tmp))
+            root = Path(tmp)
+            task = self.make_task(root)
+            trace_file = root / "trace.jsonl"
             agent = Agent(
                 task,
                 fake_model,
                 config=AgentConfig(
                     max_iterations=6,
                     python_executable=sys.executable,
+                    trace_file=trace_file,
                 ),
             )
 
@@ -77,6 +80,10 @@ class AgentLoopFakeModelTests(unittest.TestCase):
 
             solution = (task / "solution.py").read_text(encoding="utf-8")
             backup = (task / ".solution.py.bak").read_text(encoding="utf-8")
+            trace_events = [
+                json.loads(line)
+                for line in trace_file.read_text(encoding="utf-8").splitlines()
+            ]
 
         self.assertEqual(result.status, "success")
         self.assertIsNone(result.reason)
@@ -100,6 +107,13 @@ class AgentLoopFakeModelTests(unittest.TestCase):
         ]
         self.assertEqual(len(tool_messages), 5)
         self.assertTrue(json.loads(tool_messages[-1]["content"])["all_passed"])
+        self.assertEqual(trace_events[0]["type"], "model_request")
+        self.assertEqual(
+            [event["tool"] for event in trace_events if event["type"] == "tool_call"],
+            ["read_file", "read_file", "run_tests", "write_solution", "run_tests"],
+        )
+        self.assertEqual(trace_events[-1]["type"], "final")
+        self.assertEqual(trace_events[-1]["status"], "success")
 
     def test_agent_stops_with_failure_when_max_iterations_reached(self):
         fake_model = ScriptedFakeModelClient(

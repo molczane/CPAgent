@@ -14,6 +14,7 @@ from .tools import (
     dispatch_tool,
     get_tool_definitions,
 )
+from .trace import TraceWriter, summarize_tool_result, test_summary
 from .workspace import DEFAULT_MAX_FILE_READ_CHARS, Workspace
 
 
@@ -49,6 +50,7 @@ class AgentConfig:
     max_stderr_chars: int = test_runner.DEFAULT_MAX_STDERR_CHARS
     max_tool_output_chars: int = DEFAULT_MAX_TOOL_OUTPUT_CHARS
     python_executable: str | None = None
+    trace_file: str | Path | None = None
 
 
 @dataclass
@@ -76,6 +78,7 @@ class Agent:
         self.task_dir = Path(task_dir)
         self.model_client = model_client
         self.config = config or AgentConfig()
+        self.trace = TraceWriter(self.config.trace_file) if self.config.trace_file else None
         self.workspace = Workspace(self.task_dir)
         self.tool_context = ToolContext(
             workspace=self.workspace,
@@ -97,13 +100,22 @@ class Agent:
         modified = False
 
         for iteration in range(1, self.config.max_iterations + 1):
+            self.write_trace({"type": "model_request", "iteration": iteration})
             model_response = self.model_client.complete(messages, tool_definitions)
+            self.write_trace(
+                {
+                    "type": "model_response",
+                    "iteration": iteration,
+                    "tool_calls": [call.name for call in model_response.tool_calls],
+                    "final": not bool(model_response.tool_calls),
+                }
+            )
             messages.append(model_message(model_response))
 
             if not model_response.tool_calls:
                 status, reason = status_for_final_answer(last_test_result)
                 passed, total = test_counts(last_test_result)
-                return AgentResult(
+                result = AgentResult(
                     status=status,
                     reason=reason,
                     iterations=iteration,
@@ -115,9 +127,29 @@ class Agent:
                     tool_results=tool_results,
                     last_test_result=last_test_result,
                 )
+                self.write_final_trace(result)
+                return result
 
             for tool_call in model_response.tool_calls:
+                self.write_trace(
+                    {
+                        "type": "tool_call",
+                        "iteration": iteration,
+                        "tool_call_id": tool_call.id,
+                        "tool": tool_call.name,
+                        "args": tool_call.args,
+                    }
+                )
                 result = dispatch_tool(tool_call.name, tool_call.args, self.tool_context)
+                self.write_trace(
+                    {
+                        "type": "tool_result",
+                        "iteration": iteration,
+                        "tool_call_id": tool_call.id,
+                        "tool": tool_call.name,
+                        "result": summarize_tool_result(result),
+                    }
+                )
                 tool_event = {
                     "iteration": iteration,
                     "tool_call_id": tool_call.id,
@@ -132,9 +164,16 @@ class Agent:
                     modified = True
                 if tool_call.name == "run_tests" and result.get("ok"):
                     last_test_result = result
+                    self.write_trace(
+                        {
+                            "type": "test_summary",
+                            "iteration": iteration,
+                            **test_summary(result),
+                        }
+                    )
                     if result.get("all_passed"):
                         passed, total = test_counts(last_test_result)
-                        return AgentResult(
+                        agent_result = AgentResult(
                             status="success",
                             reason=None,
                             iterations=iteration,
@@ -146,9 +185,11 @@ class Agent:
                             tool_results=tool_results,
                             last_test_result=last_test_result,
                         )
+                        self.write_final_trace(agent_result)
+                        return agent_result
 
         passed, total = test_counts(last_test_result)
-        return AgentResult(
+        result = AgentResult(
             status="failed",
             reason="max iterations reached",
             iterations=self.config.max_iterations,
@@ -160,6 +201,25 @@ class Agent:
             tool_results=tool_results,
             last_test_result=last_test_result,
         )
+        self.write_final_trace(result)
+        return result
+
+    def write_trace(self, event: dict[str, Any]) -> None:
+        if self.trace:
+            self.trace.write(event)
+
+    def write_final_trace(self, result: AgentResult) -> None:
+        event: dict[str, Any] = {
+            "type": "final",
+            "status": result.status,
+            "iterations": result.iterations,
+            "tests_passed": result.tests_passed,
+            "tests_total": result.tests_total,
+            "modified": result.modified,
+        }
+        if result.reason:
+            event["reason"] = result.reason
+        self.write_trace(event)
 
 
 def model_message(model_response: ModelResponse) -> dict[str, Any]:

@@ -158,6 +158,7 @@ def solve(
             config=AgentConfig(
                 max_iterations=args.max_iterations,
                 timeout_seconds=args.timeout_seconds,
+                trace_file=args.trace_file,
             ),
         ).run()
     except OpenAIClientError as exc:

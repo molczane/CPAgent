@@ -59,6 +59,12 @@ class CliValidationTests(unittest.TestCase):
 
         return factory
 
+    def solve_args(self, task: Path, trace_file: Path | None = None) -> list[str]:
+        args = ["solve", str(task)]
+        if trace_file:
+            args.extend(["--trace-file", str(trace_file)])
+        return args
+
     def test_missing_openai_api_key_exits_nonzero_with_helpful_message(self):
         with tempfile.TemporaryDirectory() as tmp:
             task = self.make_valid_task(Path(tmp))
@@ -153,23 +159,29 @@ class CliValidationTests(unittest.TestCase):
 
     def test_accepts_valid_task_and_runs_injected_agent(self):
         with tempfile.TemporaryDirectory() as tmp:
-            task = self.make_valid_task(Path(tmp))
+            root = Path(tmp)
+            task = self.make_valid_task(root)
+            trace_file = root / "trace.jsonl"
 
             code, stdout, stderr = self.run_cli(
-                ["solve", str(task)],
+                self.solve_args(task, trace_file),
                 env={"OPENAI_API_KEY": "test-key"},
                 model_client_factory=self.make_success_model_factory(),
             )
+            trace_exists = trace_file.is_file()
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
         self.assertIn("Status: success", stdout)
         self.assertIn("Iterations: 1", stdout)
         self.assertIn("Tests: 1/1 passed", stdout)
+        self.assertTrue(trace_exists)
 
     def test_accepts_supported_solve_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
-            task = self.make_valid_task(Path(tmp))
+            root = Path(tmp)
+            task = self.make_valid_task(root)
+            trace_file = root / "custom-trace.jsonl"
 
             code, stdout, stderr = self.run_cli(
                 [
@@ -180,16 +192,18 @@ class CliValidationTests(unittest.TestCase):
                     "--timeout-seconds",
                     "1.5",
                     "--trace-file",
-                    "custom-trace.jsonl",
+                    str(trace_file),
                     "--verbose",
                 ],
                 env={"OPENAI_API_KEY": "test-key"},
                 model_client_factory=self.make_success_model_factory(),
             )
+            trace_exists = trace_file.is_file()
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
         self.assertIn("Status: success", stdout)
+        self.assertTrue(trace_exists)
 
     def test_openai_client_error_is_reported_without_secret(self):
         def failing_factory(_env):

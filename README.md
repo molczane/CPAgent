@@ -67,8 +67,20 @@ Parameters:
 
 - `--max-iterations`: maximum number of model/tool loop iterations before the agent stops. Default: `5`.
 - `--timeout-seconds`: timeout for each sample test execution. Default: `2`.
-- `--trace-file`: path reserved for JSONL trace output. Default: `trace.jsonl`.
+- `--trace-file`: path for JSONL trace output. Default: `trace.jsonl`.
 - `--verbose`: prints more progress information during the run.
+
+The trace file is useful for inspecting what happened after a run. Each line is one JSON object. For example:
+
+```bash
+cat trace.jsonl
+```
+
+To see only tool calls:
+
+```bash
+uv run python -c 'import json; [print(e["iteration"], e["tool"], e["args"]) for e in map(json.loads, open("trace.jsonl")) if e["type"] == "tool_call"]'
+```
 
 Model selection is controlled by environment variables:
 

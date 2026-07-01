@@ -469,11 +469,19 @@ Last failure: sample3 expected 10 but got 9
 
 ### FR-013: Trace logging
 
-The agent must write a trace file in JSONL format by default:
+The agent must write a trace file in JSONL format. The CLI flag:
+
+```bash
+--trace-file trace.jsonl
+```
+
+selects the trace path and defaults to:
 
 ```text
 trace.jsonl
 ```
+
+Relative trace paths are resolved from the process working directory. Starting a run may replace the existing trace file at that path.
 
 Each event should be one JSON object per line.
 
@@ -481,14 +489,15 @@ Example events:
 
 ```json
 {"type": "model_request", "iteration": 1}
+{"type": "model_response", "iteration": 1, "tool_calls": ["read_file"], "final": false}
 {"type": "tool_call", "iteration": 1, "tool": "read_file", "args": {"path": "statement.md"}}
-{"type": "tool_result", "iteration": 1, "tool": "read_file", "ok": true}
+{"type": "tool_result", "iteration": 1, "tool": "read_file", "result": {"ok": true, "path": "statement.md"}}
 {"type": "tool_call", "iteration": 2, "tool": "run_tests", "args": {}}
-{"type": "test_summary", "iteration": 2, "passed": 1, "total": 2}
-{"type": "final", "status": "success"}
+{"type": "test_summary", "iteration": 2, "passed": 1, "total": 2, "summary": "1/2 tests passed", "all_passed": false}
+{"type": "final", "status": "success", "iterations": 3, "tests_passed": 2, "tests_total": 2, "modified": true}
 ```
 
-Do not log the OpenAI API key or any environment secrets.
+Trace output is for observability, not for reconstructing every byte of context. Tool results should be summarized enough to inspect the loop while avoiding large file contents, large stdout/stderr payloads, and other noisy data. Do not log the OpenAI API key or any environment secrets; secret-like fields must be redacted.
 
 ### FR-014: Human-readable verbose mode
 
@@ -677,7 +686,8 @@ Add tests for:
 7. test runner pass/fail behavior,
 8. timeout behavior,
 9. tool dispatch,
-10. trace writing.
+10. trace writing,
+11. trace secret redaction.
 
 ### Fake model integration test
 

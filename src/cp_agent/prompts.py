@@ -20,6 +20,8 @@ Rules:
 - Do not modify tests.
 - Do not assume internet access.
 - Do not ask the user for clarification.
+- When calling a tool, include a short public reason that explains the next step.
+- The tool reason should not include hidden chain-of-thought.
 - Prefer simple, correct algorithms.
 - Keep the solution readable.
 - Stop when all tests pass.

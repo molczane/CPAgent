@@ -115,10 +115,18 @@ There is intentionally no shell tool and no arbitrary file write.
 The model can ask:
 
 ```json
-{"path": "statement.md"}
+{"path": "statement.md", "reason": "I need to understand the task statement"}
 ```
 
 but it cannot directly open `statement.md` itself. Python checks the request, reads the file if it is allowed, and returns the result.
+
+Every model-facing tool schema requires a short public `reason` string. Verbose mode prints that reason in lines such as:
+
+```text
+[1] I am using read_file(statement.md) because I need to understand the task statement.
+```
+
+The reason is for observability and teaching the workflow. The dispatcher strips it before running the local tool, and it must not contain hidden chain-of-thought.
 
 ## Safe Workspace Boundary
 
@@ -222,7 +230,7 @@ Example:
 ```json
 {"iteration": 1, "type": "model_request"}
 {"final": false, "iteration": 1, "tool_calls": ["read_file"], "type": "model_response"}
-{"args": {"path": "statement.md"}, "iteration": 1, "tool": "read_file", "tool_call_id": "call_abc", "type": "tool_call"}
+{"args": {"path": "statement.md", "reason": "I need to understand the task statement"}, "iteration": 1, "tool": "read_file", "tool_call_id": "call_abc", "type": "tool_call"}
 {"iteration": 1, "result": {"ok": true, "path": "statement.md"}, "tool": "read_file", "tool_call_id": "call_abc", "type": "tool_result"}
 ```
 
@@ -275,4 +283,3 @@ repeat until done
 ```
 
 For competitive programming, the key feedback signal is tests. The model proposes a fix, but tests decide whether the fix worked.
-

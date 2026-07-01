@@ -78,7 +78,16 @@ class OpenAIClientTests(unittest.TestCase):
 
     def test_build_responses_input_converts_tool_loop_messages(self):
         response = ModelResponse(
-            tool_calls=(ToolCall("call-1", "read_file", {"path": "statement.md"}),)
+            tool_calls=(
+                ToolCall(
+                    "call-1",
+                    "read_file",
+                    {
+                        "path": "statement.md",
+                        "reason": "I need to read the statement first",
+                    },
+                ),
+            )
         )
         messages = [
             {"role": "system", "content": "system instructions"},
@@ -100,7 +109,10 @@ class OpenAIClientTests(unittest.TestCase):
         self.assertEqual(response_input[1]["name"], "read_file")
         self.assertEqual(
             json.loads(response_input[1]["arguments"]),
-            {"path": "statement.md"},
+            {
+                "path": "statement.md",
+                "reason": "I need to read the statement first",
+            },
         )
         self.assertEqual(response_input[2]["type"], "function_call_output")
         self.assertEqual(response_input[2]["call_id"], "call-1")
@@ -132,7 +144,10 @@ class OpenAIClientTests(unittest.TestCase):
                     type="function_call",
                     call_id="call-1",
                     name="read_file",
-                    arguments='{"path": "statement.md"}',
+                    arguments=(
+                        '{"path": "statement.md", '
+                        '"reason": "I need to inspect the task"}'
+                    ),
                 )
             ]
         )
@@ -141,7 +156,16 @@ class OpenAIClientTests(unittest.TestCase):
 
         self.assertEqual(
             result.tool_calls,
-            (ToolCall("call-1", "read_file", {"path": "statement.md"}),),
+            (
+                ToolCall(
+                    "call-1",
+                    "read_file",
+                    {
+                        "path": "statement.md",
+                        "reason": "I need to inspect the task",
+                    },
+                ),
+            ),
         )
         self.assertEqual(result.response_items[0]["type"], "function_call")
         self.assertEqual(result.response_items[0]["call_id"], "call-1")
@@ -182,7 +206,12 @@ class OpenAIClientTests(unittest.TestCase):
                             "type": "function_call",
                             "call_id": "call-1",
                             "name": "read_file",
-                            "arguments": '{"path": "statement.md"}',
+                            "arguments": json.dumps(
+                                {
+                                    "path": "statement.md",
+                                    "reason": "I need to read the task",
+                                }
+                            ),
                         }
                     ]
                 },
@@ -192,7 +221,9 @@ class OpenAIClientTests(unittest.TestCase):
                             "type": "function_call",
                             "call_id": "call-2",
                             "name": "run_tests",
-                            "arguments": "{}",
+                            "arguments": json.dumps(
+                                {"reason": "I need to see current failures"}
+                            ),
                         }
                     ]
                 },
@@ -202,7 +233,12 @@ class OpenAIClientTests(unittest.TestCase):
                             "type": "function_call",
                             "call_id": "call-3",
                             "name": "write_solution",
-                            "arguments": json.dumps({"content": corrected_solution}),
+                            "arguments": json.dumps(
+                                {
+                                    "content": corrected_solution,
+                                    "reason": "I have a candidate fix",
+                                }
+                            ),
                         }
                     ]
                 },
@@ -212,7 +248,9 @@ class OpenAIClientTests(unittest.TestCase):
                             "type": "function_call",
                             "call_id": "call-4",
                             "name": "run_tests",
-                            "arguments": "{}",
+                            "arguments": json.dumps(
+                                {"reason": "I need to verify the fix"}
+                            ),
                         }
                     ]
                 },

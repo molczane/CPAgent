@@ -10,7 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from cp_agent.tools import TOOL_DEFINITIONS, ToolContext, dispatch_tool
+from cp_agent.tools import (
+    PUBLIC_REASON_ARG,
+    TOOL_DEFINITIONS,
+    ToolContext,
+    dispatch_tool,
+)
 from cp_agent.workspace import Workspace
 
 
@@ -41,6 +46,8 @@ class ToolsTests(unittest.TestCase):
             parameters = definition["parameters"]
             self.assertEqual(parameters["type"], "object")
             self.assertIn("required", parameters)
+            self.assertIn(PUBLIC_REASON_ARG, parameters["properties"])
+            self.assertIn(PUBLIC_REASON_ARG, parameters["required"])
             self.assertFalse(parameters["additionalProperties"])
 
     def test_list_files_tool(self):
@@ -48,7 +55,11 @@ class ToolsTests(unittest.TestCase):
             task = self.make_task(Path(tmp))
             context = self.make_context(task)
 
-            result = dispatch_tool("list_files", {}, context)
+            result = dispatch_tool(
+                "list_files",
+                {"reason": "I need to see the task files"},
+                context,
+            )
 
         self.assertEqual(
             result,
@@ -67,7 +78,14 @@ class ToolsTests(unittest.TestCase):
             task = self.make_task(Path(tmp))
             context = self.make_context(task)
 
-            result = dispatch_tool("read_file", {"path": "statement.md"}, context)
+            result = dispatch_tool(
+                "read_file",
+                {
+                    "path": "statement.md",
+                    "reason": "I need to read the statement",
+                },
+                context,
+            )
 
         self.assertEqual(
             result,
@@ -87,7 +105,8 @@ class ToolsTests(unittest.TestCase):
                     "content": (
                         "import sys\n"
                         "print(sys.stdin.read().strip())\n"
-                    )
+                    ),
+                    "reason": "I have a candidate fix",
                 },
                 context,
             )
@@ -111,7 +130,11 @@ class ToolsTests(unittest.TestCase):
             )
             context = self.make_context(task)
 
-            result = dispatch_tool("run_tests", {}, context)
+            result = dispatch_tool(
+                "run_tests",
+                {"reason": "I need to check the solution"},
+                context,
+            )
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["all_passed"])
@@ -130,6 +153,7 @@ class ToolsTests(unittest.TestCase):
                 dispatch_tool("read_file", {"path": "statement.md", "extra": True}, context),
                 dispatch_tool("write_solution", {"content": 123}, context),
                 dispatch_tool("run_tests", {"path": "solution.py"}, context),
+                dispatch_tool("run_tests", {"reason": 123}, context),
                 dispatch_tool("run_tests", [], context),  # type: ignore[arg-type]
             ]
 

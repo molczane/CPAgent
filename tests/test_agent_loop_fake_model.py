@@ -36,28 +36,57 @@ class AgentLoopFakeModelTests(unittest.TestCase):
             [
                 ModelResponse(
                     tool_calls=(
-                        ToolCall("call-1", "read_file", {"path": "statement.md"}),
+                        ToolCall(
+                            "call-1",
+                            "read_file",
+                            {
+                                "path": "statement.md",
+                                "reason": "I need to understand the problem statement",
+                            },
+                        ),
                     )
                 ),
                 ModelResponse(
                     tool_calls=(
-                        ToolCall("call-2", "read_file", {"path": "solution.py"}),
+                        ToolCall(
+                            "call-2",
+                            "read_file",
+                            {
+                                "path": "solution.py",
+                                "reason": "I need to inspect the current code",
+                            },
+                        ),
                     )
                 ),
                 ModelResponse(
-                    tool_calls=(ToolCall("call-3", "run_tests", {}),)
+                    tool_calls=(
+                        ToolCall(
+                            "call-3",
+                            "run_tests",
+                            {"reason": "I need to see which tests fail"},
+                        ),
+                    )
                 ),
                 ModelResponse(
                     tool_calls=(
                         ToolCall(
                             "call-4",
                             "write_solution",
-                            {"content": corrected_solution},
+                            {
+                                "content": corrected_solution,
+                                "reason": "I have a candidate fix for solution.py",
+                            },
                         ),
                     )
                 ),
                 ModelResponse(
-                    tool_calls=(ToolCall("call-5", "run_tests", {}),)
+                    tool_calls=(
+                        ToolCall(
+                            "call-5",
+                            "run_tests",
+                            {"reason": "I need to verify the updated solution"},
+                        ),
+                    )
                 ),
                 ModelResponse(final_text="All tests pass."),
             ]
@@ -110,11 +139,11 @@ class AgentLoopFakeModelTests(unittest.TestCase):
             progress_lines,
             [
                 "[1] I am using read_file(statement.md) because "
-                "I need to understand the task statement.",
+                "I need to understand the problem statement.",
                 "[2] I am using read_file(solution.py) because "
-                "I need to inspect the current solution.",
+                "I need to inspect the current code.",
                 "[3] I am using run_tests() because "
-                "test feedback tells me what is failing.",
+                "I need to see which tests fail.",
                 "[3] Tests: 0/1 passed",
                 "[4] I am using write_solution because "
                 "I have a candidate fix for solution.py.",

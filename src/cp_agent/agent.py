@@ -10,6 +10,7 @@ from . import test_runner
 from .prompts import SYSTEM_PROMPT, initial_user_message
 from .tools import (
     DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+    PUBLIC_REASON_ARG,
     ToolContext,
     dispatch_tool,
     get_tool_definitions,
@@ -260,6 +261,10 @@ def tool_call_display(tool_call: ToolCall) -> str:
 
 
 def tool_call_reason(tool_call: ToolCall, *, modified: bool) -> str:
+    public_reason = public_tool_reason(tool_call)
+    if public_reason:
+        return public_reason
+
     if tool_call.name == "list_files":
         return "I need to see which task files are available"
     if tool_call.name == "read_file":
@@ -278,6 +283,18 @@ def tool_call_reason(tool_call: ToolCall, *, modified: bool) -> str:
             return "I need to verify the updated solution"
         return "test feedback tells me what is failing"
     return "this is the next requested local action"
+
+
+def public_tool_reason(tool_call: ToolCall) -> str | None:
+    reason = tool_call.args.get(PUBLIC_REASON_ARG)
+    if not isinstance(reason, str):
+        return None
+
+    text = " ".join(reason.split()).strip()
+    if not text:
+        return None
+
+    return compact_display_value(text.rstrip(".?!"), max_chars=180)
 
 
 def compact_display_value(value: str, max_chars: int = 80) -> str:

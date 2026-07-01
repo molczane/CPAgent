@@ -54,7 +54,17 @@ class CliValidationTests(unittest.TestCase):
     def make_success_model_factory(self):
         def factory(_env):
             return ScriptedFakeModelClient(
-                [ModelResponse(tool_calls=(ToolCall("call-1", "run_tests", {}),))]
+                [
+                    ModelResponse(
+                        tool_calls=(
+                            ToolCall(
+                                "call-1",
+                                "run_tests",
+                                {"reason": "I need to check the current solution"},
+                            ),
+                        )
+                    )
+                ]
             )
 
         return factory
@@ -208,7 +218,7 @@ class CliValidationTests(unittest.TestCase):
             stdout.splitlines(),
             [
                 "[1] I am using run_tests() because "
-                "test feedback tells me what is failing.",
+                "I need to check the current solution.",
                 "[1] Tests: 1/1 passed",
                 "Status: success",
                 "Iterations: 1",

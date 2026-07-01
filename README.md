@@ -8,12 +8,12 @@ read problem -> inspect code -> run tests -> observe failure -> edit solution ->
 
 The project follows `SPEC.md`. Version 0 uses Python and the official OpenAI Python SDK only. It does not use LangChain, LangGraph, or any other agent framework.
 
-## Setup
+## Setup With uv
 
-Create and activate a Python environment, then install the project and its dependencies:
+This project is meant to work well with `uv`. From the repository root, install/sync the editable package and dependencies with:
 
 ```bash
-python -m pip install -e .
+uv sync
 ```
 
 Set the required OpenAI API key:
@@ -34,10 +34,10 @@ If `OPENAI_MODEL` is not set, the implementation will use its default model cons
 
 This repository includes a small sample task in `task/`. Its `solution.py` is intentionally wrong, so the agent has something concrete to repair.
 
-From the repository root, run:
+From the repository root, run the agent through uv:
 
 ```bash
-python -m cp_agent solve task --verbose
+uv run python -m cp_agent solve task --verbose
 ```
 
 Supported flags:
@@ -51,11 +51,13 @@ Supported flags:
 
 The CLI validates the task directory, constructs the OpenAI SDK-backed model client, and runs the local tool loop. The model can only use the four safe tools from `SPEC.md`: `list_files`, `read_file`, `write_solution`, and `run_tests`.
 
-If you are using the checked-in virtual environment on this machine, the command is:
+You can also run through the `.venv` Python after `uv sync` has installed the project:
 
 ```bash
 .venv/bin/python -m cp_agent solve task --verbose
 ```
+
+If `.venv/bin/python -m cp_agent ...` says `No module named cp_agent`, run `uv sync` first. If `.venv/bin/python -m pip ...` says `No module named pip`, that is normal for this uv-managed environment; use `uv sync` or `uv run` instead of `python -m pip`.
 
 ## Task Shape
 
@@ -76,5 +78,5 @@ At least one matching `.in` / `.out` pair is required.
 Run the current validation tests with:
 
 ```bash
-python -m unittest discover -s tests
+uv run python -m unittest discover -s tests
 ```

@@ -5,7 +5,10 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, TextIO
+from typing import Callable, Mapping, TextIO
+
+from .agent import Agent, AgentConfig, AgentResult, ModelClient
+from .openai_client import OpenAIClientError, OpenAIModelClient
 
 DEFAULT_MAX_ITERATIONS = 5
 DEFAULT_TIMEOUT_SECONDS = 2
@@ -113,6 +116,7 @@ def main(
     environ: Mapping[str, str] | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    model_client_factory: Callable[[Mapping[str, str]], ModelClient] | None = None,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -122,7 +126,7 @@ def main(
     err = sys.stderr if stderr is None else stderr
 
     if args.command == "solve":
-        return solve(args, env, out, err)
+        return solve(args, env, out, err, model_client_factory)
 
     parser.error(f"Unknown command: {args.command}")
     return 2
@@ -133,6 +137,7 @@ def solve(
     environ: Mapping[str, str],
     stdout: TextIO,
     stderr: TextIO,
+    model_client_factory: Callable[[Mapping[str, str]], ModelClient] | None = None,
 ) -> int:
     if not environ.get("OPENAI_API_KEY"):
         print(MISSING_API_KEY_MESSAGE, file=stderr, end="")
@@ -144,7 +149,30 @@ def solve(
         print(f"Task validation failed: {exc}", file=stderr)
         return 2
 
-    print(f"Task validation passed: {task_info.root}", file=stdout)
-    print(f"Tests discovered: {len(task_info.test_names)}", file=stdout)
-    print("Agent loop is not implemented yet.", file=stdout)
-    return 0
+    create_model_client = model_client_factory or OpenAIModelClient.from_environ
+    try:
+        model_client = create_model_client(environ)
+        result = Agent(
+            task_info.root,
+            model_client,
+            config=AgentConfig(
+                max_iterations=args.max_iterations,
+                timeout_seconds=args.timeout_seconds,
+            ),
+        ).run()
+    except OpenAIClientError as exc:
+        print(f"OpenAI error: {exc}", file=stderr)
+        return 4
+
+    print_agent_result(result, stdout)
+    return 0 if result.status == "success" else 3
+
+
+def print_agent_result(result: AgentResult, stdout: TextIO) -> None:
+    print(f"Status: {result.status}", file=stdout)
+    if result.reason:
+        print(f"Reason: {result.reason}", file=stdout)
+    print(f"Iterations: {result.iterations}", file=stdout)
+    print(f"Tests: {result.tests_passed}/{result.tests_total} passed", file=stdout)
+    if result.modified:
+        print("Modified: solution.py", file=stdout)

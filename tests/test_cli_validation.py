@@ -13,25 +13,51 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from cp_agent import cli
+from cp_agent.agent import ModelResponse, ToolCall
+from cp_agent.fake_model import ScriptedFakeModelClient
+from cp_agent.openai_client import OpenAIClientError
 
 
 class CliValidationTests(unittest.TestCase):
-    def run_cli(self, argv: list[str], *, env: dict[str, str] | None = None):
+    def run_cli(
+        self,
+        argv: list[str],
+        *,
+        env: dict[str, str] | None = None,
+        model_client_factory=None,
+    ):
         stdout = io.StringIO()
         stderr = io.StringIO()
-        code = cli.main(argv, environ=env or {}, stdout=stdout, stderr=stderr)
+        code = cli.main(
+            argv,
+            environ=env or {},
+            stdout=stdout,
+            stderr=stderr,
+            model_client_factory=model_client_factory,
+        )
         return code, stdout.getvalue(), stderr.getvalue()
 
     def make_valid_task(self, root: Path) -> Path:
         task = root / "task"
         task.mkdir()
         (task / "statement.md").write_text("Solve the sample task.\n", encoding="utf-8")
-        (task / "solution.py").write_text("print('placeholder')\n", encoding="utf-8")
+        (task / "solution.py").write_text(
+            "import sys\nprint(sys.stdin.read().strip())\n",
+            encoding="utf-8",
+        )
         tests = task / "tests"
         tests.mkdir()
         (tests / "sample1.in").write_text("1\n", encoding="utf-8")
         (tests / "sample1.out").write_text("1\n", encoding="utf-8")
         return task
+
+    def make_success_model_factory(self):
+        def factory(_env):
+            return ScriptedFakeModelClient(
+                [ModelResponse(tool_calls=(ToolCall("call-1", "run_tests", {}),))]
+            )
+
+        return factory
 
     def test_missing_openai_api_key_exits_nonzero_with_helpful_message(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -125,20 +151,21 @@ class CliValidationTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertIn("at least one matching .in / .out pair", stderr)
 
-    def test_accepts_valid_task_and_stops_at_placeholder(self):
+    def test_accepts_valid_task_and_runs_injected_agent(self):
         with tempfile.TemporaryDirectory() as tmp:
             task = self.make_valid_task(Path(tmp))
 
             code, stdout, stderr = self.run_cli(
                 ["solve", str(task)],
                 env={"OPENAI_API_KEY": "test-key"},
+                model_client_factory=self.make_success_model_factory(),
             )
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
-        self.assertIn("Task validation passed:", stdout)
-        self.assertIn("Tests discovered: 1", stdout)
-        self.assertIn("Agent loop is not implemented yet.", stdout)
+        self.assertIn("Status: success", stdout)
+        self.assertIn("Iterations: 1", stdout)
+        self.assertIn("Tests: 1/1 passed", stdout)
 
     def test_accepts_supported_solve_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -157,17 +184,37 @@ class CliValidationTests(unittest.TestCase):
                     "--verbose",
                 ],
                 env={"OPENAI_API_KEY": "test-key"},
+                model_client_factory=self.make_success_model_factory(),
             )
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
-        self.assertIn("Agent loop is not implemented yet.", stdout)
+        self.assertIn("Status: success", stdout)
+
+    def test_openai_client_error_is_reported_without_secret(self):
+        def failing_factory(_env):
+            raise OpenAIClientError("The openai package is not installed.")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_valid_task(Path(tmp))
+
+            code, stdout, stderr = self.run_cli(
+                ["solve", str(task)],
+                env={"OPENAI_API_KEY": "secret-test-key"},
+                model_client_factory=failing_factory,
+            )
+
+        self.assertEqual(code, 4)
+        self.assertEqual(stdout, "")
+        self.assertIn("OpenAI error:", stderr)
+        self.assertIn("not installed", stderr)
+        self.assertNotIn("secret-test-key", stderr)
 
     def test_module_entrypoint_reaches_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
             task = self.make_valid_task(Path(tmp))
             env = os.environ.copy()
-            env["OPENAI_API_KEY"] = "test-key"
+            env.pop("OPENAI_API_KEY", None)
             env["PYTHONPATH"] = str(SRC)
 
             result = subprocess.run(
@@ -178,9 +225,9 @@ class CliValidationTests(unittest.TestCase):
                 check=False,
             )
 
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stderr, "")
-        self.assertIn("Agent loop is not implemented yet.", result.stdout)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("OPENAI_API_KEY is not set.", result.stderr)
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ Supported flags:
 --verbose
 ```
 
-Milestone 1 implements only CLI and task validation. The agent loop, tools, test runner, and OpenAI calls are intentionally not implemented yet.
+The CLI validates the task directory, constructs the OpenAI SDK-backed model client, and runs the local tool loop. Example tasks and trace logging are later milestones.
 
 ## Task Shape
 

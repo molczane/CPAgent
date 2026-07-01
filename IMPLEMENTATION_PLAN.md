@@ -149,6 +149,8 @@ Add trace JSONL and human-readable progress so model/tool loop behavior is obser
 - Tool result trace events summarize outputs rather than logging full file contents or large stdout/stderr payloads.
 - Trace does not include `OPENAI_API_KEY` or other environment secrets.
 - Verbose mode prints workshop-friendly progress for model requests, tool calls, test summaries, solution writes, success, and failure.
+- Verbose tool-call output uses a short form like `I am using <tool> because <reason>`, where the reason is an operational explanation generated from the tool name and arguments rather than hidden model reasoning.
+- The final concise result remains at the end of terminal output.
 - Non-verbose mode keeps output concise.
 
 ### Done Criteria
@@ -156,7 +158,7 @@ Add trace JSONL and human-readable progress so model/tool loop behavior is obser
 - Trace writer can append events throughout the CLI, tool layer, and agent loop.
 - Secret redaction is covered by tests.
 - Fake-model integration tests prove trace output without OpenAI.
-- Verbose output format is stable enough for live demo narration.
+- Verbose output format is stable enough for live demo narration and includes app-generated tool-use reasons.
 - Trace and verbose plumbing are present without needing the OpenAI API.
 
 ## Milestone 5: Fake Agent Loop
@@ -313,6 +315,7 @@ Verify the v0 done criteria and remove accidental complexity before considering 
 - `run_tests` says normalize trailing whitespace per line and final trailing newlines. The exact normalization helper should be shared by expected and actual output and covered by focused tests.
 - `write_solution` creates `.solution.py.bak`; the spec does not say whether to overwrite an existing backup on later writes. A simple v0 behavior is to overwrite the backup with the immediately previous `solution.py` before each write.
 - `trace.jsonl` should be written to the CLI-provided path, resolved relative to the process working directory when relative. Starting a run may replace the previous trace file at that path; this should be documented in README and tests should avoid polluting example task directories.
+- Verbose "because" messages should not expose hidden chain-of-thought. They should be short operational explanations derived from tool calls, such as reading the statement to understand the task or running tests to verify the current solution.
 - `FR-010` allows either asking the model for a final explanation after passing tests or stopping with success. For simplicity and reliability, v0 can stop with success immediately after all tests pass, optionally preserving the latest model text if available.
 - The OpenAI SDK has multiple API surfaces. The implementation should pick one official, current surface and keep conversion isolated in `openai_client.py` so tests can fake it.
 - The spec allows an optional live smoke test but requires normal tests to avoid OpenAI. CI and local default test commands must skip live tests unless `RUN_OPENAI_SMOKE=1`.

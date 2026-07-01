@@ -51,6 +51,8 @@ Supported flags:
 
 The CLI validates the task directory, constructs the OpenAI SDK-backed model client, and runs the local tool loop. The model can only use the four safe tools from `SPEC.md`: `list_files`, `read_file`, `write_solution`, and `run_tests`.
 
+For a deeper explanation of the architecture, loop, tool boundary, and tracing, see [Agent Workflow](docs/agent_workflow.md).
+
 ## Agent Parameters
 
 You can tune the agent from the command line:

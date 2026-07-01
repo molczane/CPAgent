@@ -32,12 +32,12 @@ If `OPENAI_MODEL` is not set, the implementation will use its default model cons
 
 ## Run The Agent
 
-This repository includes a small sample task in `task/`. Its `solution.py` is intentionally wrong, so the agent has something concrete to repair.
+This repository includes sample tasks in `tasks/`. Each task has an intentionally wrong `solution.py`, so the agent has something concrete to repair.
 
 From the repository root, run the agent through uv:
 
 ```bash
-uv run python -m cp_agent solve task --verbose
+uv run python -m cp_agent solve tasks/double_number --verbose
 ```
 
 Supported flags:
@@ -56,7 +56,7 @@ The CLI validates the task directory, constructs the OpenAI SDK-backed model cli
 You can tune the agent from the command line:
 
 ```bash
-uv run python -m cp_agent solve task \
+uv run python -m cp_agent solve tasks/double_number \
   --max-iterations 8 \
   --timeout-seconds 3 \
   --trace-file trace.jsonl \
@@ -94,10 +94,26 @@ export OPENAI_MODEL="gpt-5-mini"
 You can also run through the `.venv` Python after `uv sync` has installed the project:
 
 ```bash
-.venv/bin/python -m cp_agent solve task --verbose
+.venv/bin/python -m cp_agent solve tasks/double_number --verbose
 ```
 
 If `.venv/bin/python -m cp_agent ...` says `No module named cp_agent`, run `uv sync` first. If `.venv/bin/python -m pip ...` says `No module named pip`, that is normal for this uv-managed environment; use `uv sync` or `uv run` instead of `python -m pip`.
+
+## Sample Tasks
+
+All demo tasks live under `tasks/`:
+
+- `tasks/double_number`: a tiny warm-up task for checking that the agent loop works.
+- `tasks/club_fair_schedule`: a greedy interval scheduling task about choosing school club presentations.
+- `tasks/contest_hall_maze`: a grid BFS shortest-path task about navigating a contest hall.
+
+Example commands:
+
+```bash
+uv run python -m cp_agent solve tasks/double_number --verbose
+uv run python -m cp_agent solve tasks/club_fair_schedule --max-iterations 8 --verbose
+uv run python -m cp_agent solve tasks/contest_hall_maze --max-iterations 8 --timeout-seconds 3 --verbose
+```
 
 ## Task Shape
 

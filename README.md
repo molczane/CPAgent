@@ -34,10 +34,16 @@ If `OPENAI_MODEL` is not set, the implementation will use its default model cons
 
 This repository includes sample tasks in `tasks/`. Each task has an intentionally wrong `solution.py`, so the agent has something concrete to repair.
 
-From the repository root, run the agent through uv:
+From the repository root, run solver mode through uv:
 
 ```bash
 uv run python -m cp_agent solve tasks/double_number --verbose
+```
+
+To get a guided hint without modifying `solution.py`, run advisor mode:
+
+```bash
+uv run python -m cp_agent advise tasks/club_fair_schedule --verbose
 ```
 
 Supported flags:
@@ -49,7 +55,7 @@ Supported flags:
 --verbose
 ```
 
-The CLI validates the task directory, constructs the OpenAI SDK-backed model client, and runs the local tool loop. The model can only use the four safe tools from `SPEC.md`: `list_files`, `read_file`, `write_solution`, and `run_tests`.
+The CLI validates the task directory, constructs the OpenAI SDK-backed model client, and runs the local tool loop. In `solve` mode, the model can use the four safe tools from `SPEC.md`: `list_files`, `read_file`, `write_solution`, and `run_tests`. In `advise` mode, the model only gets `list_files`, `read_file`, and `run_tests`.
 
 For a deeper explanation of the architecture, loop, tool boundary, and tracing, see [Agent Workflow](docs/agent_workflow.md).
 
@@ -72,6 +78,16 @@ Parameters:
 - `--trace-file`: path for JSONL trace output. Default: `trace.jsonl`.
 - `--verbose`: prints step-by-step tool narration during the run.
 
+The same flags work with `advise`:
+
+```bash
+uv run python -m cp_agent advise tasks/club_fair_schedule \
+  --max-iterations 5 \
+  --timeout-seconds 3 \
+  --trace-file advice-trace.jsonl \
+  --verbose
+```
+
 Verbose mode keeps the final compact summary at the end, but adds readable lines while the loop is running:
 
 ```text
@@ -86,6 +102,20 @@ Iterations: 4
 Tests: 2/2 passed
 Modified: solution.py
 ```
+
+Advisor mode prints a hint first, then keeps the compact final summary at the end:
+
+```text
+Advice:
+Sort presentations by finish time, then greedily keep the next one that starts
+after the last chosen presentation. Compare that idea with the failing sample.
+
+Status: success
+Iterations: 3
+Tests: 1/2 passed
+```
+
+Advisor mode is read-only: it cannot call or execute `write_solution`.
 
 The "because" text comes from a required public `reason` argument in each model tool call. It is meant to explain the agent workflow, not reveal hidden model reasoning.
 
@@ -131,6 +161,7 @@ Example commands:
 ```bash
 uv run python -m cp_agent solve tasks/double_number --verbose
 uv run python -m cp_agent solve tasks/club_fair_schedule --max-iterations 8 --verbose
+uv run python -m cp_agent advise tasks/club_fair_schedule --max-iterations 5 --verbose
 uv run python -m cp_agent solve tasks/contest_hall_maze --max-iterations 8 --timeout-seconds 3 --verbose
 ```
 

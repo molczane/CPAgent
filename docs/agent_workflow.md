@@ -15,36 +15,40 @@ The agent loop lives in `src/cp_agent/agent.py`.
 At a high level:
 
 1. Build the initial conversation:
-   - system prompt from `src/cp_agent/prompts.py`
+   - mode-specific system prompt from `src/cp_agent/prompts.py`
    - user message pointing at the selected task
-2. Send the conversation and tool schemas to the model client.
+2. Send the conversation and mode-specific tool schemas to the model client.
 3. If the model returns tool calls, execute each local tool.
 4. Append tool results to the conversation.
-5. If `run_tests` reports all tests passed, stop with success.
-6. If the model returns a final answer before tests pass, stop with failure.
+5. In `solve` mode, if `run_tests` reports all tests passed, stop with success.
+6. In `advise` mode, keep looping until the model returns final advice text.
 7. If the iteration limit is reached, stop with failure.
 
 ## Workflow Graph
 
 ```mermaid
 flowchart TD
-    A["CLI: python -m cp_agent solve <task_dir>"] --> B["Validate OPENAI_API_KEY"]
+    A["CLI: python -m cp_agent <mode> <task_dir>"] --> B["Validate OPENAI_API_KEY"]
     B --> C["Validate task directory shape"]
     C --> D["Create OpenAIModelClient"]
-    D --> E["Create Agent and ToolContext"]
-    E --> F["Initialize messages and tool schemas"]
-    F --> G["Call model"]
-    G --> H{"Model response"}
-    H -->|Tool calls| I["Dispatch local tools"]
-    I --> J["Append tool outputs to messages"]
-    J --> K{"Was run_tests all passed?"}
-    K -->|Yes| L["Final result: success"]
-    K -->|No| M{"Iterations left?"}
-    M -->|Yes| G
-    M -->|No| N["Final result: failed, max iterations"]
-    H -->|Final answer| O{"Tests already passed?"}
-    O -->|Yes| L
-    O -->|No| P["Final result: failed, premature final answer"]
+    D --> E{"Mode"}
+    E -->|solve| F["Solver prompt + read/write tool schemas"]
+    E -->|advise| G["Advisor prompt + read-only tool schemas"]
+    F --> H["Call model"]
+    G --> H
+    H --> I{"Model response"}
+    I -->|Tool calls| J["Dispatch allowed local tools"]
+    J --> K["Append tool outputs to messages"]
+    K --> L{"Mode-specific stop?"}
+    L -->|solve: tests passed| M["Final result: success"]
+    L -->|advise: needs final advice| N{"Iterations left?"}
+    L -->|not done| N
+    N -->|Yes| H
+    N -->|No| O["Final result: failed, max iterations"]
+    I -->|Final text in solve| P{"Tests already passed?"}
+    P -->|Yes| M
+    P -->|No| Q["Final result: failed, premature final answer"]
+    I -->|Final advice in advise| R["Advice + final result: success"]
 ```
 
 ## Sequence Diagram
@@ -90,7 +94,7 @@ sequenceDiagram
 
 | Module | Responsibility |
 | --- | --- |
-| `cli.py` | Parses `solve`, validates environment and task shape, creates the model client and agent, prints final result. |
+| `cli.py` | Parses `solve` and `advise`, validates environment and task shape, creates the model client and agent, prints final result. |
 | `agent.py` | Owns the explicit model/tool/test loop and stopping rules. |
 | `openai_client.py` | Thin wrapper around the official OpenAI SDK and Responses API tool-calling shape. |
 | `tools.py` | Defines the exact model-visible tool schemas and dispatches tool calls. |
@@ -101,7 +105,7 @@ sequenceDiagram
 
 ## Model Boundary
 
-The model receives only four tools:
+In `solve` mode, the model receives four tools:
 
 ```text
 list_files
@@ -110,7 +114,16 @@ write_solution
 run_tests
 ```
 
+In `advise` mode, the model receives only:
+
+```text
+list_files
+read_file
+run_tests
+```
+
 There is intentionally no shell tool and no arbitrary file write.
+`write_solution` is not exposed in `advise` mode, and the agent rejects it if a malformed model response asks for it anyway.
 
 The model can ask:
 
@@ -137,8 +150,10 @@ The selected task directory is the workspace. In v0:
   - `solution.py`
   - `tests/*.in`
   - `tests/*.out`
-- writable file:
+- writable file in `solve` mode:
   - `solution.py`
+
+Advisor mode is read-only and cannot write `solution.py`.
 
 The workspace layer resolves real paths before allowing access. Requests such as these are rejected:
 
@@ -185,19 +200,37 @@ Timeouts are reported as failed tests with:
 
 ## Stopping Rules
 
-The agent stops when one of these happens:
+In `solve` mode, the agent stops when one of these happens:
 
 - `run_tests` reports `all_passed: true`: success.
 - the model returns a final answer before tests pass: failure.
 - `max_iterations` is reached: failure.
 
-The CLI prints a compact result:
+In `advise` mode, the agent stops when one of these happens:
+
+- the model returns final advice text: success.
+- `max_iterations` is reached before advice is produced: failure.
+
+Passing tests do not stop advisor mode by themselves, because the point is to produce a hint.
+
+Solver mode prints a compact result:
 
 ```text
 Status: success
 Iterations: 6
 Tests: 2/2 passed
 Modified: solution.py
+```
+
+Advisor mode prints advice first, then the compact result:
+
+```text
+Advice:
+Sort by finish time and greedily keep the next compatible presentation.
+
+Status: success
+Iterations: 3
+Tests: 1/2 passed
 ```
 
 ## Tracing
@@ -209,6 +242,14 @@ uv run python -m cp_agent solve tasks/club_fair_schedule \
   --max-iterations 8 \
   --timeout-seconds 3 \
   --trace-file trace.jsonl \
+  --verbose
+```
+
+Advisor mode uses the same trace format:
+
+```bash
+uv run python -m cp_agent advise tasks/club_fair_schedule \
+  --trace-file advice-trace.jsonl \
   --verbose
 ```
 
@@ -251,6 +292,12 @@ Module name: cp_agent
 Parameters: solve tasks/club_fair_schedule --max-iterations 8 --timeout-seconds 3 --trace-file trace.jsonl --verbose
 Working directory: /Users/ernest.molczan/PycharmProjects/CPAgent
 Environment: OPENAI_API_KEY=...
+```
+
+For advisor mode, use:
+
+```text
+Parameters: advise tasks/club_fair_schedule --max-iterations 5 --timeout-seconds 3 --trace-file advice-trace.jsonl --verbose
 ```
 
 Good breakpoints:

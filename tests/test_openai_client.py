@@ -289,6 +289,46 @@ class OpenAIClientTests(unittest.TestCase):
             item.get("type") == "function_call_output" for item in last_input
         ))
 
+    def test_openai_wrapper_receives_read_only_tools_in_advise_mode(self):
+        fake_sdk = SequencedFakeSdkClient(
+            [
+                {
+                    "output_text": "Use the sample tests to infer the pattern.",
+                    "output": [],
+                }
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task = Path(tmp) / "task"
+            task.mkdir()
+            (task / "statement.md").write_text("Echo input.\n", encoding="utf-8")
+            (task / "solution.py").write_text("print('wrong')\n", encoding="utf-8")
+            tests = task / "tests"
+            tests.mkdir()
+            (tests / "sample1.in").write_text("5\n", encoding="utf-8")
+            (tests / "sample1.out").write_text("5\n", encoding="utf-8")
+
+            client = OpenAIModelClient(model="test-model", sdk_client=fake_sdk)
+            agent = Agent(
+                task,
+                client,
+                config=AgentConfig(
+                    mode="advise",
+                    max_iterations=2,
+                    python_executable=sys.executable,
+                ),
+            )
+
+            result = agent.run()
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.final_answer, "Use the sample tests to infer the pattern.")
+        self.assertEqual(
+            [tool["name"] for tool in fake_sdk.responses.calls[0]["tools"]],
+            ["list_files", "read_file", "run_tests"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

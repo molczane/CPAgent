@@ -9,6 +9,7 @@ from typing import Callable, Mapping, TextIO
 
 from .agent import Agent, AgentConfig, AgentResult, ModelClient
 from .openai_client import OpenAIClientError, OpenAIModelClient
+from .prompts import AgentMode
 
 DEFAULT_MAX_ITERATIONS = 5
 DEFAULT_TIMEOUT_SECONDS = 2
@@ -41,31 +42,41 @@ def build_parser() -> argparse.ArgumentParser:
         "solve",
         help="Validate and solve a competitive-programming task directory.",
     )
-    solve.add_argument("task_dir", help="Path to the task directory.")
-    solve.add_argument(
+    add_agent_arguments(solve)
+
+    advise = subparsers.add_parser(
+        "advise",
+        help="Validate a task directory and print a guided solving hint.",
+    )
+    add_agent_arguments(advise)
+
+    return parser
+
+
+def add_agent_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("task_dir", help="Path to the task directory.")
+    parser.add_argument(
         "--max-iterations",
         type=int,
         default=DEFAULT_MAX_ITERATIONS,
         help=f"Maximum agent loop iterations. Default: {DEFAULT_MAX_ITERATIONS}.",
     )
-    solve.add_argument(
+    parser.add_argument(
         "--timeout-seconds",
         type=float,
         default=DEFAULT_TIMEOUT_SECONDS,
         help=f"Per-test timeout in seconds. Default: {DEFAULT_TIMEOUT_SECONDS}.",
     )
-    solve.add_argument(
+    parser.add_argument(
         "--trace-file",
         default=DEFAULT_TRACE_FILE,
         help=f"JSONL trace output path. Default: {DEFAULT_TRACE_FILE}.",
     )
-    solve.add_argument(
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Print human-readable progress while the agent runs.",
     )
-
-    return parser
 
 
 def validate_task_dir(task_dir: str | Path) -> TaskInfo:
@@ -127,6 +138,8 @@ def main(
 
     if args.command == "solve":
         return solve(args, env, out, err, model_client_factory)
+    if args.command == "advise":
+        return advise(args, env, out, err, model_client_factory)
 
     parser.error(f"Unknown command: {args.command}")
     return 2
@@ -137,6 +150,42 @@ def solve(
     environ: Mapping[str, str],
     stdout: TextIO,
     stderr: TextIO,
+    model_client_factory: Callable[[Mapping[str, str]], ModelClient] | None = None,
+) -> int:
+    return run_agent_command(
+        args,
+        environ,
+        stdout,
+        stderr,
+        mode="solve",
+        model_client_factory=model_client_factory,
+    )
+
+
+def advise(
+    args: argparse.Namespace,
+    environ: Mapping[str, str],
+    stdout: TextIO,
+    stderr: TextIO,
+    model_client_factory: Callable[[Mapping[str, str]], ModelClient] | None = None,
+) -> int:
+    return run_agent_command(
+        args,
+        environ,
+        stdout,
+        stderr,
+        mode="advise",
+        model_client_factory=model_client_factory,
+    )
+
+
+def run_agent_command(
+    args: argparse.Namespace,
+    environ: Mapping[str, str],
+    stdout: TextIO,
+    stderr: TextIO,
+    *,
+    mode: AgentMode,
     model_client_factory: Callable[[Mapping[str, str]], ModelClient] | None = None,
 ) -> int:
     if not environ.get("OPENAI_API_KEY"):
@@ -156,6 +205,7 @@ def solve(
             task_info.root,
             model_client,
             config=AgentConfig(
+                mode=mode,
                 max_iterations=args.max_iterations,
                 timeout_seconds=args.timeout_seconds,
                 trace_file=args.trace_file,
@@ -167,15 +217,24 @@ def solve(
         print(f"OpenAI error: {exc}", file=stderr)
         return 4
 
-    print_agent_result(result, stdout)
+    print_agent_result(result, stdout, mode=mode)
     return 0 if result.status == "success" else 3
 
 
-def print_agent_result(result: AgentResult, stdout: TextIO) -> None:
+def print_agent_result(
+    result: AgentResult,
+    stdout: TextIO,
+    *,
+    mode: AgentMode = "solve",
+) -> None:
+    if mode == "advise" and result.final_answer:
+        print("Advice:", file=stdout)
+        print(result.final_answer.strip(), file=stdout)
+        print(file=stdout)
     print(f"Status: {result.status}", file=stdout)
     if result.reason:
         print(f"Reason: {result.reason}", file=stdout)
     print(f"Iterations: {result.iterations}", file=stdout)
     print(f"Tests: {result.tests_passed}/{result.tests_total} passed", file=stdout)
-    if result.modified:
+    if mode == "solve" and result.modified:
         print("Modified: solution.py", file=stdout)

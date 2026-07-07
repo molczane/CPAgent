@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from . import test_runner
-from .prompts import SYSTEM_PROMPT, initial_user_message
+from .prompts import AgentMode, initial_user_message, system_prompt
 from .tools import (
+    ADVISE_TOOL_NAMES,
     DEFAULT_MAX_TOOL_OUTPUT_CHARS,
     PUBLIC_REASON_ARG,
+    SOLVE_TOOL_NAMES,
     ToolContext,
     dispatch_tool,
     get_tool_definitions,
@@ -44,6 +46,7 @@ class ModelClient(Protocol):
 
 @dataclass(frozen=True)
 class AgentConfig:
+    mode: AgentMode = "solve"
     max_iterations: int = 5
     timeout_seconds: float = test_runner.DEFAULT_TIMEOUT_SECONDS
     max_file_read_chars: int = DEFAULT_MAX_FILE_READ_CHARS
@@ -94,10 +97,13 @@ class Agent:
 
     def run(self) -> AgentResult:
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": initial_user_message(self.task_dir)},
+            {"role": "system", "content": system_prompt(self.config.mode)},
+            {
+                "role": "user",
+                "content": initial_user_message(self.task_dir, self.config.mode),
+            },
         ]
-        tool_definitions = get_tool_definitions()
+        tool_definitions = get_tool_definitions(tool_names_for_mode(self.config.mode))
         tool_results: list[dict[str, Any]] = []
         last_test_result: dict[str, Any] | None = None
         modified = False
@@ -105,6 +111,7 @@ class Agent:
         for iteration in range(1, self.config.max_iterations + 1):
             self.write_trace({"type": "model_request", "iteration": iteration})
             model_response = self.model_client.complete(messages, tool_definitions)
+            # region Description
             self.write_trace(
                 {
                     "type": "model_response",
@@ -113,11 +120,17 @@ class Agent:
                     "final": not bool(model_response.tool_calls),
                 }
             )
+            # endregion
             messages.append(model_message(model_response))
 
             if not model_response.tool_calls:
-                status, reason = status_for_final_answer(last_test_result)
+                status, reason = status_for_final_answer(
+                    last_test_result,
+                    mode=self.config.mode,
+                    final_text=model_response.final_text,
+                )
                 passed, total = test_counts(last_test_result)
+                # region Description
                 result = AgentResult(
                     status=status,
                     reason=reason,
@@ -130,6 +143,7 @@ class Agent:
                     tool_results=tool_results,
                     last_test_result=last_test_result,
                 )
+                # endregion
                 self.write_final_trace(result)
                 return result
 
@@ -138,6 +152,7 @@ class Agent:
                     iteration,
                     tool_progress_message(tool_call, modified=modified),
                 )
+                # region Description
                 self.write_trace(
                     {
                         "type": "tool_call",
@@ -147,7 +162,8 @@ class Agent:
                         "args": tool_call.args,
                     }
                 )
-                result = dispatch_tool(tool_call.name, tool_call.args, self.tool_context)
+                # endregion
+                result = self.dispatch_tool_call(tool_call)
                 self.write_trace(
                     {
                         "type": "tool_result",
@@ -183,7 +199,7 @@ class Agent:
                             **test_summary(result),
                         }
                     )
-                    if result.get("all_passed"):
+                    if self.config.mode == "solve" and result.get("all_passed"):
                         passed, total = test_counts(last_test_result)
                         agent_result = AgentResult(
                             status="success",
@@ -215,6 +231,20 @@ class Agent:
         )
         self.write_final_trace(result)
         return result
+
+    def dispatch_tool_call(self, tool_call: ToolCall) -> dict[str, Any]:
+        if (
+            self.config.mode == "advise"
+            and tool_call.name not in tool_names_for_mode(self.config.mode)
+        ):
+            return {
+                "ok": False,
+                "error": (
+                    f"Tool not allowed in {self.config.mode} mode: "
+                    f"{tool_call.name}"
+                ),
+            }
+        return dispatch_tool(tool_call.name, tool_call.args, self.tool_context)
 
     def write_trace(self, event: dict[str, Any]) -> None:
         if self.trace:
@@ -336,9 +366,22 @@ def tool_result_message(
     }
 
 
+def tool_names_for_mode(mode: AgentMode) -> tuple[str, ...]:
+    if mode == "advise":
+        return ADVISE_TOOL_NAMES
+    return SOLVE_TOOL_NAMES
+
+
 def status_for_final_answer(
     last_test_result: dict[str, Any] | None,
+    *,
+    mode: AgentMode = "solve",
+    final_text: str | None = None,
 ) -> tuple[str, str | None]:
+    if mode == "advise":
+        if final_text and final_text.strip():
+            return "success", None
+        return "failed", "model returned empty advice"
     if last_test_result and last_test_result.get("all_passed"):
         return "success", None
     return "failed", "model returned final answer before tests passed"

@@ -48,6 +48,14 @@ and watch the agent:
 6. rerun tests,
 7. stop when all tests pass or when the iteration limit is reached.
 
+As a student who wants a nudge instead of an automatic fix, I also want to run:
+
+```bash
+python -m cp_agent advise examples/two_sum_bug
+```
+
+and receive a guided hint without the agent modifying `solution.py`.
+
 ## Target audience
 
 The code should be understandable for students who know basic Python and competitive programming concepts.
@@ -98,7 +106,7 @@ task_name/
     sample2.out
 ```
 
-The agent may modify:
+In `solve` mode, the agent may modify:
 
 ```text
 solution.py
@@ -146,6 +154,12 @@ The project must provide a CLI command:
 python -m cp_agent solve <task_dir>
 ```
 
+It must also provide a read-only advisor command:
+
+```bash
+python -m cp_agent advise <task_dir>
+```
+
 Optional flags:
 
 ```bash
@@ -159,6 +173,7 @@ Example:
 
 ```bash
 python -m cp_agent solve examples/dijkstra_bug --max-iterations 5 --verbose
+python -m cp_agent advise examples/dijkstra_bug --max-iterations 5 --verbose
 ```
 
 ### FR-002: Environment validation
@@ -212,7 +227,7 @@ Path handling must resolve real paths and verify that every target path remains 
 
 ### FR-005: Available tools
 
-Expose exactly these tools to the model in v0:
+In `solve` mode, expose exactly these tools to the model:
 
 ```text
 list_files
@@ -220,6 +235,16 @@ read_file
 write_solution
 run_tests
 ```
+
+In `advise` mode, expose only read-only/advisory tools:
+
+```text
+list_files
+read_file
+run_tests
+```
+
+`write_solution` must not be exposed in `advise` mode. The agent loop must also reject a `write_solution` tool call in `advise` mode if a malformed or fake model response still requests it.
 
 No arbitrary shell tool should be exposed in v0.
 
@@ -391,7 +416,7 @@ If the program times out:
 
 ### FR-010: Agent loop
 
-The agent loop should follow this structure:
+The `solve` loop should follow this structure:
 
 ```text
 initialize messages
@@ -412,11 +437,13 @@ if max iterations reached:
     stop with failure summary
 ```
 
+The `advise` loop uses the same model/tool/output pattern, but with the read-only tool set. It succeeds when the model returns final advice text. It may run tests for feedback, but it must not stop merely because tests pass; it should continue until it can print the advice or until `max_iterations` is reached.
+
 The loop must be visible and easy to explain in the workshop.
 
 ### FR-011: System prompt
 
-The agent must use a system prompt similar to:
+`solve` mode must use a system prompt similar to:
 
 ```text
 You are a competitive programming coding agent.
@@ -442,7 +469,9 @@ Rules:
 - Stop when all tests pass.
 ```
 
-The exact prompt may evolve, but the behavior above is required.
+`advise` mode must use a separate coaching prompt that tells the model to inspect the task with read-only tools, return a guided hint, avoid full replacement code, and never modify files.
+
+The exact prompts may evolve, but the mode-specific behavior above is required.
 
 ### FR-012: Final result
 
@@ -466,6 +495,21 @@ Iterations: 5
 Tests: 2/4 passed
 Last failure: sample3 expected 10 but got 9
 ```
+
+Advisor success example:
+
+```text
+Advice:
+Focus on sorting the presentations by finish time. Keep the first presentation
+that starts after the last chosen one, and compare that idea with the failing
+sample before changing code.
+
+Status: success
+Iterations: 3
+Tests: 1/2 passed
+```
+
+Advisor mode must never print `Modified: solution.py`.
 
 ### FR-013: Trace logging
 
@@ -836,10 +880,12 @@ The implementation is done when:
 6. The agent stops after `max_iterations`.
 7. It cannot read files outside the task directory.
 8. It cannot write files outside `solution.py`.
-9. Unit tests pass.
-10. A fake-model integration test proves the loop works without OpenAI.
-11. README explains setup and demo usage.
-12. The code is simple enough to explain during a workshop.
+9. `advise` mode can inspect the task and return a guided hint without modifying files.
+10. `advise` mode does not expose or execute `write_solution`.
+11. Unit tests pass.
+12. A fake-model integration test proves the loop works without OpenAI.
+13. README explains setup and demo usage.
+14. The code is simple enough to explain during a workshop.
 
 ## Recommended implementation order
 
@@ -909,6 +955,13 @@ Make `two_sum_bug` the default workshop demo.
 ### Milestone 7: Trace and verbose output
 
 Add JSONL trace logging and readable terminal progress.
+
+### Milestone 8: Advisor mode
+
+Add `python -m cp_agent advise <task_dir>` as a read-only coaching mode.
+
+Advisor mode should use read-only tools, return guided hint text, and preserve
+the current `solve` behavior unchanged.
 
 ## Suggested `AGENTS.md` for this repository
 

@@ -8,7 +8,8 @@ This plan follows `SPEC.md` for v0: a small educational Python coding agent for 
 - Required environment variable: `OPENAI_API_KEY`.
 - Optional environment variable: `OPENAI_MODEL`.
 - Default model constant: `DEFAULT_MODEL = "gpt-5-mini"` unless changed deliberately in code.
-- Exposed model tools in v0: exactly `list_files`, `read_file`, `write_solution`, and `run_tests`.
+- Exposed model tools in `solve` mode: exactly `list_files`, `read_file`, `write_solution`, and `run_tests`.
+- Exposed model tools in `advise` mode: exactly `list_files`, `read_file`, and `run_tests`.
 - No arbitrary shell tool, network tool, package installation tool, Git integration, subagents, memory, GUI, web app, or database.
 - The agent may read only `statement.md`, `solution.py`, and `tests/*.in` / `tests/*.out` inside the selected task directory.
 - The agent may write only `solution.py`, with `.solution.py.bak` created before replacement.
@@ -273,7 +274,40 @@ Add the workshop demo tasks and make the full command work against `two_sum_bug`
 - CLI success output includes status, iterations, tests passed, and modified file.
 - CLI failure output includes status, reason, iterations, tests passed, and last failure where available.
 
-## Milestone 8: Final Verification and Review Pass
+## Milestone 8: Advisor Mode Refinement
+
+### Goal
+
+Add a read-only coaching mode that gives students a guided hint instead of editing `solution.py`.
+
+### Files to Create or Modify
+
+- Modify `src/cp_agent/cli.py`
+- Modify `src/cp_agent/agent.py`
+- Modify `src/cp_agent/prompts.py`
+- Modify `src/cp_agent/tools.py`
+- Extend fake-model, CLI, and OpenAI-wrapper tests.
+- Update `SPEC.md`, `README.md`, and `docs/agent_workflow.md`.
+
+### Tests Required
+
+- `advise <task_dir>` validates `OPENAI_API_KEY` and task shape like `solve`.
+- `advise` accepts `--max-iterations`, `--timeout-seconds`, `--trace-file`, and `--verbose`.
+- Advisor mode exposes only `list_files`, `read_file`, and `run_tests`.
+- Advisor mode returns success when the model returns final advice text, even if tests fail.
+- Advisor mode does not stop early when tests pass before advice is produced.
+- A hallucinated `write_solution` call in advisor mode returns a structured tool error and does not modify files.
+- Existing `solve` tests still prove solution repair works.
+
+### Done Criteria
+
+- `uv run python -m cp_agent advise tasks/<name> --verbose` returns a guided hint.
+- Advisor output prints an `Advice:` block followed by the compact final summary.
+- Advisor mode never prints `Modified: solution.py`.
+- Advisor mode cannot expose or execute `write_solution`.
+- Trace and verbose output still work in both modes.
+
+## Milestone 9: Final Verification and Review Pass
 
 ### Goal
 

@@ -166,6 +166,150 @@ class AgentLoopFakeModelTests(unittest.TestCase):
         self.assertEqual(trace_events[-1]["type"], "final")
         self.assertEqual(trace_events[-1]["status"], "success")
 
+    def test_advise_mode_uses_read_only_tools_and_returns_final_advice(self):
+        advice = (
+            "Try reading the intervals as half-open time blocks, sort by finish "
+            "time, then greedily keep the next compatible club presentation."
+        )
+        fake_model = ScriptedFakeModelClient(
+            [
+                ModelResponse(
+                    tool_calls=(
+                        ToolCall(
+                            "call-1",
+                            "read_file",
+                            {
+                                "path": "statement.md",
+                                "reason": "I need to understand the task",
+                            },
+                        ),
+                    )
+                ),
+                ModelResponse(
+                    tool_calls=(
+                        ToolCall(
+                            "call-2",
+                            "run_tests",
+                            {"reason": "I need to see the current behavior"},
+                        ),
+                    )
+                ),
+                ModelResponse(final_text=advice),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_task(Path(tmp))
+            original_solution = (task / "solution.py").read_text(encoding="utf-8")
+            agent = Agent(
+                task,
+                fake_model,
+                config=AgentConfig(
+                    mode="advise",
+                    max_iterations=4,
+                    python_executable=sys.executable,
+                ),
+            )
+
+            result = agent.run()
+
+            solution = (task / "solution.py").read_text(encoding="utf-8")
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.final_answer, advice)
+        self.assertFalse(result.modified)
+        self.assertEqual(solution, original_solution)
+        self.assertEqual(result.tests_passed, 0)
+        self.assertEqual(result.tests_total, 1)
+        first_request_tools = [tool["name"] for tool in fake_model.requests[0][1]]
+        self.assertEqual(first_request_tools, ["list_files", "read_file", "run_tests"])
+
+    def test_advise_mode_does_not_stop_when_tests_pass_before_advice(self):
+        fake_model = ScriptedFakeModelClient(
+            [
+                ModelResponse(
+                    tool_calls=(
+                        ToolCall(
+                            "call-1",
+                            "run_tests",
+                            {"reason": "I need to check the current solution"},
+                        ),
+                    )
+                ),
+                ModelResponse(final_text="The current solution already matches the samples."),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_task(Path(tmp))
+            (task / "solution.py").write_text(
+                "import sys\nprint(sys.stdin.read().strip())\n",
+                encoding="utf-8",
+            )
+            agent = Agent(
+                task,
+                fake_model,
+                config=AgentConfig(
+                    mode="advise",
+                    max_iterations=3,
+                    python_executable=sys.executable,
+                ),
+            )
+
+            result = agent.run()
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.iterations, 2)
+        self.assertEqual(result.tests_passed, 1)
+        self.assertEqual(result.tests_total, 1)
+        self.assertEqual(len(fake_model.requests), 2)
+
+    def test_advise_mode_rejects_hallucinated_write_solution(self):
+        fake_model = ScriptedFakeModelClient(
+            [
+                ModelResponse(
+                    tool_calls=(
+                        ToolCall(
+                            "call-1",
+                            "write_solution",
+                            {
+                                "content": "print('changed')\n",
+                                "reason": "I should not actually be allowed to edit",
+                            },
+                        ),
+                    )
+                ),
+                ModelResponse(final_text="Look for the mismatch before changing code."),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_task(Path(tmp))
+            original_solution = (task / "solution.py").read_text(encoding="utf-8")
+            agent = Agent(
+                task,
+                fake_model,
+                config=AgentConfig(
+                    mode="advise",
+                    max_iterations=2,
+                    python_executable=sys.executable,
+                ),
+            )
+
+            result = agent.run()
+
+            solution = (task / "solution.py").read_text(encoding="utf-8")
+            backup_exists = (task / ".solution.py.bak").exists()
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(solution, original_solution)
+        self.assertFalse(backup_exists)
+        self.assertFalse(result.modified)
+        self.assertEqual(len(result.tool_results), 1)
+        tool_error = result.tool_results[0]["result"]["error"]
+        self.assertIn("Tool not allowed in advise mode", tool_error)
+        self.assertIn("write_solution", tool_error)
+
     def test_agent_stops_with_failure_when_max_iterations_reached(self):
         fake_model = ScriptedFakeModelClient(
             [

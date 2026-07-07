@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -97,8 +98,19 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
-def get_tool_definitions() -> list[dict[str, Any]]:
-    return [definition.copy() for definition in TOOL_DEFINITIONS]
+SOLVE_TOOL_NAMES = ("list_files", "read_file", "write_solution", "run_tests")
+ADVISE_TOOL_NAMES = ("list_files", "read_file", "run_tests")
+
+
+def get_tool_definitions(
+    tool_names: tuple[str, ...] = SOLVE_TOOL_NAMES,
+) -> list[dict[str, Any]]:
+    allowed = set(tool_names)
+    return [
+        deepcopy(definition)
+        for definition in TOOL_DEFINITIONS
+        if definition["name"] in allowed
+    ]
 
 
 def dispatch_tool(

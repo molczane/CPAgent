@@ -11,10 +11,13 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from cp_agent.tools import (
+    ADVISE_TOOL_NAMES,
     PUBLIC_REASON_ARG,
+    SOLVE_TOOL_NAMES,
     TOOL_DEFINITIONS,
     ToolContext,
     dispatch_tool,
+    get_tool_definitions,
 )
 from cp_agent.workspace import Workspace
 
@@ -49,6 +52,16 @@ class ToolsTests(unittest.TestCase):
             self.assertIn(PUBLIC_REASON_ARG, parameters["properties"])
             self.assertIn(PUBLIC_REASON_ARG, parameters["required"])
             self.assertFalse(parameters["additionalProperties"])
+
+    def test_tool_definitions_can_be_limited_to_advisor_read_only_tools(self):
+        self.assertEqual(
+            [definition["name"] for definition in get_tool_definitions(SOLVE_TOOL_NAMES)],
+            ["list_files", "read_file", "write_solution", "run_tests"],
+        )
+        self.assertEqual(
+            [definition["name"] for definition in get_tool_definitions(ADVISE_TOOL_NAMES)],
+            ["list_files", "read_file", "run_tests"],
+        )
 
     def test_list_files_tool(self):
         with tempfile.TemporaryDirectory() as tmp:

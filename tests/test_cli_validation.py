@@ -69,8 +69,29 @@ class CliValidationTests(unittest.TestCase):
 
         return factory
 
+    def make_advice_model_factory(self):
+        def factory(_env):
+            return ScriptedFakeModelClient(
+                [
+                    ModelResponse(
+                        final_text=(
+                            "Focus on the ordering rule, then test the greedy "
+                            "choice against the samples."
+                        )
+                    )
+                ]
+            )
+
+        return factory
+
     def solve_args(self, task: Path, trace_file: Path | None = None) -> list[str]:
         args = ["solve", str(task)]
+        if trace_file:
+            args.extend(["--trace-file", str(trace_file)])
+        return args
+
+    def advise_args(self, task: Path, trace_file: Path | None = None) -> list[str]:
+        args = ["advise", str(task)]
         if trace_file:
             args.extend(["--trace-file", str(trace_file)])
         return args
@@ -97,6 +118,28 @@ class CliValidationTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertIn("OPENAI_API_KEY is not set.", stderr)
         self.assertNotIn("Task validation failed", stderr)
+
+    def test_advise_missing_openai_api_key_exits_nonzero_with_helpful_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_valid_task(Path(tmp))
+
+            code, stdout, stderr = self.run_cli(["advise", str(task)], env={})
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(stdout, "")
+        self.assertIn("OPENAI_API_KEY is not set.", stderr)
+
+    def test_advise_reuses_task_validation(self):
+        code, stdout, stderr = self.run_cli(
+            ["advise", "/path/that/does/not/exist"],
+            env={"OPENAI_API_KEY": "test-key"},
+            model_client_factory=self.make_advice_model_factory(),
+        )
+
+        self.assertEqual(code, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("Task validation failed:", stderr)
+        self.assertIn("does not exist", stderr)
 
     def test_rejects_missing_task_directory(self):
         code, stdout, stderr = self.run_cli(
@@ -225,6 +268,46 @@ class CliValidationTests(unittest.TestCase):
                 "Tests: 1/1 passed",
             ],
         )
+        self.assertTrue(trace_exists)
+
+    def test_accepts_supported_advise_flags_and_prints_advice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task = self.make_valid_task(root)
+            trace_file = root / "advice-trace.jsonl"
+
+            code, stdout, stderr = self.run_cli(
+                [
+                    "advise",
+                    str(task),
+                    "--max-iterations",
+                    "3",
+                    "--timeout-seconds",
+                    "1.5",
+                    "--trace-file",
+                    str(trace_file),
+                    "--verbose",
+                ],
+                env={"OPENAI_API_KEY": "test-key"},
+                model_client_factory=self.make_advice_model_factory(),
+            )
+            trace_exists = trace_file.is_file()
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual(
+            stdout.splitlines(),
+            [
+                "Advice:",
+                "Focus on the ordering rule, then test the greedy "
+                "choice against the samples.",
+                "",
+                "Status: success",
+                "Iterations: 1",
+                "Tests: 0/0 passed",
+            ],
+        )
+        self.assertNotIn("Modified: solution.py", stdout)
         self.assertTrue(trace_exists)
 
     def test_openai_client_error_is_reported_without_secret(self):

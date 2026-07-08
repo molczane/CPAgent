@@ -111,7 +111,7 @@ class Agent:
         for iteration in range(1, self.config.max_iterations + 1):
             self.write_trace({"type": "model_request", "iteration": iteration})
             model_response = self.model_client.complete(messages, tool_definitions)
-            # region Description
+            # region Logging
             self.write_trace(
                 {
                     "type": "model_response",
@@ -130,7 +130,7 @@ class Agent:
                     final_text=model_response.final_text,
                 )
                 passed, total = test_counts(last_test_result)
-                # region Description
+                # region Agent Result
                 result = AgentResult(
                     status=status,
                     reason=reason,
@@ -152,7 +152,7 @@ class Agent:
                     iteration,
                     tool_progress_message(tool_call, modified=modified),
                 )
-                # region Description
+                # region Logging
                 self.write_trace(
                     {
                         "type": "tool_call",
@@ -164,6 +164,7 @@ class Agent:
                 )
                 # endregion
                 result = self.dispatch_tool_call(tool_call)
+                # region Logging
                 self.write_trace(
                     {
                         "type": "tool_result",
@@ -173,6 +174,7 @@ class Agent:
                         "result": summarize_tool_result(result),
                     }
                 )
+                # endregion
                 tool_event = {
                     "iteration": iteration,
                     "tool_call_id": tool_call.id,

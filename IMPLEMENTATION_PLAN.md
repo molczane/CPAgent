@@ -4,9 +4,9 @@ This plan follows `SPEC.md` for v0: a small educational Python coding agent for 
 
 ## Global Constraints
 
-- Runtime model provider: OpenAI only, via the official OpenAI Python SDK.
+- Runtime model server: OpenAI or a local Responses API-compatible server, via the official OpenAI Python SDK.
 - Required environment variable: `OPENAI_API_KEY`.
-- Optional environment variable: `OPENAI_MODEL`.
+- Optional environment variables: `OPENAI_MODEL`, `OPENAI_BASE_URL`, `OPENAI_TIMEOUT_SECONDS`, and `OPENAI_MAX_RETRIES`.
 - Default model constant: `DEFAULT_MODEL = "gpt-5-mini"` unless changed deliberately in code.
 - Exposed model tools in `solve` mode: exactly `list_files`, `read_file`, `write_solution`, and `run_tests`.
 - Exposed model tools in `advise` mode: exactly `list_files`, `read_file`, and `run_tests`.
@@ -339,6 +339,42 @@ Verify the v0 done criteria and remove accidental complexity before considering 
 - Runtime dependencies are limited to the official OpenAI SDK plus Python standard library.
 - Test-only dependencies, if any, are clearly separated from runtime dependencies.
 - README gives a complete workshop demo path.
+
+## Milestone 10: Local Qwen Through Unsloth
+
+### Goal
+
+Prepare a local Qwen trial that needs only the Unsloth API key, using the existing
+Responses client, agent loop, and bounded tools.
+
+### Files to Create or Modify
+
+- Extend `openai_client.py` with explicit endpoint, timeout, retry configuration,
+  single-loaded-model discovery, and actionable API errors.
+- Update `cli.py` to identify the selected model in verbose mode.
+- Add `.env.qwen.example`, an ignored local `.env.qwen`, and a shared PyCharm
+  advisor run configuration reading that file. The local preset pins the model
+  ID `unsloth/Qwen3.8-27B-GGUF` from the supplied Unsloth catalog; discovery remains
+  an optional fallback.
+- Update `SPEC.md`, `README.md`, and `docs/agent_workflow.md`.
+- Extend client and CLI tests without making network calls.
+
+### Tests Required
+
+- Configuration is passed to the official SDK; omitted options keep SDK defaults.
+- Invalid timeout/retry settings fail before any model request.
+- Automatic discovery selects the sole loaded model, ignores cached unloaded
+  models, and reports missing, ambiguous, or unauthenticated model lists.
+- An SDK transport test verifies local request routing, bearer authentication,
+  Responses function-call replay, and final advice without modifying a task.
+- Existing solver and advisor tests continue to pass.
+- The prepared entry point reports a missing key without starting inference.
+
+### Done Criteria
+
+- The user can fill in only `.env.qwen`'s API key and launch the Qwen advisor preset.
+- No cloud API key, server key, or inference request is needed for preparation.
+- Live model quality and tool calling remain explicitly unverified until the trial.
 
 ## Risks and Ambiguities
 

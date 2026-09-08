@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Mapping
 
 from .agent import ModelResponse, ToolCall
@@ -18,15 +19,73 @@ class OpenAIModelClient:
         *,
         model: str = DEFAULT_MODEL,
         api_key: str | None = None,
+        base_url: str | None = None,
+        timeout_seconds: float | None = None,
+        max_retries: int | None = None,
         sdk_client: Any | None = None,
     ):
         self.model = model
-        self.client = sdk_client or make_sdk_client(api_key)
+        self.client = sdk_client or make_sdk_client(
+            api_key,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+        )
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> "OpenAIModelClient":
         model = environ.get("OPENAI_MODEL") or DEFAULT_MODEL
-        return cls(model=model, api_key=environ.get("OPENAI_API_KEY"))
+        base_url = environ.get("OPENAI_BASE_URL") or None
+        timeout_seconds = None
+        if value := environ.get("OPENAI_TIMEOUT_SECONDS"):
+            try:
+                timeout_seconds = float(value)
+                if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+                    raise ValueError
+            except ValueError:
+                raise OpenAIClientError(
+                    "OPENAI_TIMEOUT_SECONDS must be a finite positive number."
+                ) from None
+        max_retries = None
+        if value := environ.get("OPENAI_MAX_RETRIES"):
+            try:
+                max_retries = int(value)
+                if max_retries < 0:
+                    raise ValueError
+            except ValueError:
+                raise OpenAIClientError(
+                    "OPENAI_MAX_RETRIES must be a nonnegative integer."
+                ) from None
+        if model == "auto" and not base_url:
+            raise OpenAIClientError("OPENAI_MODEL=auto requires OPENAI_BASE_URL.")
+
+        client = cls(
+            model=model,
+            api_key=environ.get("OPENAI_API_KEY"),
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+        )
+        if model == "auto":
+            client.model = client.find_loaded_model()
+        return client
+
+    def find_loaded_model(self) -> str:
+        try:
+            models = self.client.models.list()
+        except Exception as exc:
+            raise model_api_error(exc) from exc
+        loaded_ids = [
+            model.id
+            for model in models.data
+            if getattr(model, "loaded", False) is True and model.id
+        ]
+        if len(loaded_ids) != 1:
+            raise OpenAIClientError(
+                f"Expected one loaded model, found {len(loaded_ids)}. "
+                "Load just Qwen in Unsloth, or set OPENAI_MODEL to an explicit model ID."
+            )
+        return loaded_ids[0]
 
     def complete(
         self,
@@ -42,12 +101,18 @@ class OpenAIModelClient:
                 tools=tools,
             )
         except Exception as exc:  # pragma: no cover - exact SDK errors vary.
-            raise OpenAIClientError("OpenAI API request failed.") from exc
+            raise model_api_error(exc) from exc
 
         return parse_response(response)
 
 
-def make_sdk_client(api_key: str | None) -> Any:
+def make_sdk_client(
+    api_key: str | None,
+    *,
+    base_url: str | None = None,
+    timeout_seconds: float | None = None,
+    max_retries: int | None = None,
+) -> Any:
     try:
         from openai import OpenAI
     except ImportError as exc:
@@ -55,9 +120,45 @@ def make_sdk_client(api_key: str | None) -> Any:
             "The openai package is not installed. Install project dependencies first."
         ) from exc
 
+    options: dict[str, Any] = {}
     if api_key:
-        return OpenAI(api_key=api_key)
-    return OpenAI()
+        options["api_key"] = api_key
+    if base_url:
+        options["base_url"] = base_url
+    if timeout_seconds is not None:
+        options["timeout"] = timeout_seconds
+    if max_retries is not None:
+        options["max_retries"] = max_retries
+    return OpenAI(**options)
+
+
+def model_api_error(exc: Exception) -> OpenAIClientError:
+    from openai import APIConnectionError, APITimeoutError
+
+    status = getattr(exc, "status_code", None)
+    if status in {401, 403}:
+        message = (
+            "Authentication failed. Check OPENAI_API_KEY for the configured model server."
+        )
+    elif isinstance(exc, APITimeoutError):
+        message = (
+            "Model request timed out. Check the server or increase OPENAI_TIMEOUT_SECONDS."
+        )
+    elif isinstance(exc, APIConnectionError):
+        message = (
+            "Cannot connect to the model server. "
+            "Check OPENAI_BASE_URL and that the server is running."
+        )
+    elif status == 404:
+        message = (
+            "Endpoint or model not found. Check OPENAI_BASE_URL (including /v1), "
+            "OPENAI_MODEL, and Responses API support."
+        )
+    elif isinstance(status, int):
+        message = f"Model API request failed (HTTP {status}). Check the model server logs."
+    else:
+        message = "Model API request failed. Check the model server logs."
+    return OpenAIClientError(message)
 
 
 def build_responses_input(

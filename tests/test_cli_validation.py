@@ -325,7 +325,7 @@ class CliValidationTests(unittest.TestCase):
 
         self.assertEqual(code, 4)
         self.assertEqual(stdout, "")
-        self.assertIn("OpenAI error:", stderr)
+        self.assertIn("Model API error:", stderr)
         self.assertIn("not installed", stderr)
         self.assertNotIn("secret-test-key", stderr)
 

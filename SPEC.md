@@ -10,7 +10,7 @@ Draft v0.1
 
 ## Purpose
 
-Build a small educational coding agent in Python that can solve or repair simple competitive-programming-style tasks by using an OpenAI model, local file tools, and test feedback.
+Build a small educational coding agent in Python that can solve or repair simple competitive-programming-style tasks by using an OpenAI model or a local Responses API-compatible model, local file tools, and test feedback.
 
 The goal is not to build a production coding assistant. The goal is to create a clear workshop demo that shows how coding agents work under the hood:
 
@@ -65,9 +65,9 @@ Avoid unnecessary abstractions. Prefer explicit code over clever framework usage
 ## Technology assumptions
 
 * Implementation language: Python.
-* Required API provider: OpenAI only.
-* Required secret: `OPENAI_API_KEY`.
-* Optional environment variable: `OPENAI_MODEL`.
+* Model server: OpenAI by default, or a local server implementing the Responses API and function calling (such as Unsloth).
+* Required secret: `OPENAI_API_KEY`, containing the configured server's API key.
+* Optional environment variables: `OPENAI_MODEL`, `OPENAI_BASE_URL`, `OPENAI_TIMEOUT_SECONDS`, and `OPENAI_MAX_RETRIES`.
 * No LangChain or LangGraph in v0.
 * No external agent framework in v0.
 * Use the official OpenAI Python SDK.
@@ -88,6 +88,23 @@ DEFAULT_MODEL = "gpt-5-mini"
 ```
 
 The README should clearly say that the model can be changed by setting `OPENAI_MODEL`.
+
+For a local server, set `OPENAI_BASE_URL` including `/v1`. `OPENAI_MODEL=auto`
+requires an explicit base URL and discovers the single model marked `loaded: true`
+by `GET /models`. Zero or multiple loaded models must produce a helpful error;
+an explicit model ID bypasses discovery. Discovery happens after task validation.
+
+`OPENAI_TIMEOUT_SECONDS` must be a finite positive number and controls model HTTP
+requests, independently of the per-test `--timeout-seconds` flag.
+`OPENAI_MAX_RETRIES` must be a nonnegative integer. Omitted settings preserve SDK
+defaults. Authentication, connection, and timeout failures must give actionable
+errors without including raw server responses or secrets.
+
+The local Qwen preset uses the existing Responses tool loop and pins
+`OPENAI_MODEL=unsloth/Qwen3.8-27B-GGUF`, bypassing automatic model discovery.
+The first live trial uses advisor mode; a solver run configuration is also available.
+Keep its API key in a Git-ignored `.env.qwen` file. No model inference runs during
+setup or normal tests; live Qwen verification happens after the user adds the key.
 
 ## Scope for v0
 

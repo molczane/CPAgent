@@ -201,6 +201,8 @@ def run_agent_command(
     create_model_client = model_client_factory or OpenAIModelClient.from_environ
     try:
         model_client = create_model_client(environ)
+        if args.verbose and isinstance(model_client, OpenAIModelClient):
+            print(f"Model: {model_client.model}", file=stdout, flush=True)
         result = Agent(
             task_info.root,
             model_client,
@@ -214,7 +216,7 @@ def run_agent_command(
             ),
         ).run()
     except OpenAIClientError as exc:
-        print(f"OpenAI error: {exc}", file=stderr)
+        print(f"Model API error: {exc}", file=stderr)
         return 4
 
     print_agent_result(result, stdout, mode=mode)

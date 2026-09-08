@@ -30,6 +30,68 @@ export OPENAI_MODEL="gpt-5-mini"
 
 If `OPENAI_MODEL` is not set, the implementation will use its default model constant.
 
+## Local Qwen With Unsloth
+
+The same official OpenAI SDK can connect to Unsloth's local Responses API. Load
+Qwen in Unsloth and keep its API server running at `http://127.0.0.1:8888/v1`.
+
+Copy `.env.qwen.example` to `.env.qwen` if that local file does not already exist.
+Fill in only `OPENAI_API_KEY` with the **Unsloth API key**. This file is ignored by
+Git. The remaining settings are ready:
+
+```dotenv
+OPENAI_API_KEY=""
+OPENAI_BASE_URL="http://127.0.0.1:8888/v1"
+OPENAI_MODEL="unsloth/Qwen3.8-27B-GGUF"
+OPENAI_TIMEOUT_SECONDS="3600"
+OPENAI_MAX_RETRIES="0"
+```
+
+In PyCharm, select **[QWEN ADVISE] cp-agent: club_fair_schedule** and run it. The
+shared configuration reads `.env.qwen` and does not inherit the parent process's
+OpenAI settings. It prints the selected model before starting the agent loop.
+
+For a solver run, select **[QWEN SOLVE] cp-agent: double_number**. It uses the same
+`.env.qwen` settings, can edit `tasks/double_number/solution.py`, and writes its
+trace to `trace-qwen-solve-double_number.jsonl`.
+
+For the same run in a terminal, use a subshell to load the local settings without
+changing your normal OpenAI configuration:
+
+```bash
+(
+  set -a
+  source .env.qwen
+  uv run python -m cp_agent advise tasks/club_fair_schedule \
+    --max-iterations 10 --timeout-seconds 3 \
+    --trace-file trace-qwen-advice.jsonl --verbose
+)
+```
+
+The preset pins `unsloth/Qwen3.8-27B-GGUF`, the model ID from the Unsloth catalog
+shown in DeepSeek Harness, and skips model discovery. `Qwen3.8-27B` is its display
+name, rather than the API model ID.
+
+Optionally, `OPENAI_MODEL=auto` queries `/v1/models` after authentication and
+selects the single model marked `loaded: true`. Cached but unloaded models are
+ignored. Multiple loaded models or servers without a `loaded` marker require
+an explicit model ID.
+
+The preset allows up to 3600 seconds of HTTP inactivity per model request and
+disables automatic retries, since local generation can be slow. This is separate
+from `--timeout-seconds`, which limits each sample test. Both `solve` and `advise`
+use the same model settings; the first trial uses the read-only advisor prompt.
+Solver trials also require the coding-agent solver prompt to be active if you
+have switched it to a workshop demo variant.
+
+Compatibility requires `/v1/responses` with structured function calls and tool
+results; Chat Completions compatibility alone is insufficient. Although the
+DeepSeek Harness preset uses `openai-completions`, the configured Unsloth server
+also exposes `/v1/responses` and translates it internally to Chat Completions.
+CPAgent therefore keeps its Responses client. Local tools still run in CPAgent.
+Normal tests use fake responses and an in-memory SDK transport;
+actual Qwen tool calling and answer quality must be checked during the live trial.
+
 ## Run The Agent
 
 This repository includes sample tasks in `tasks/`. Each task has an intentionally wrong `solution.py`, so the agent has something concrete to repair.
@@ -138,7 +200,12 @@ export OPENAI_API_KEY="..."
 export OPENAI_MODEL="gpt-5-mini"
 ```
 
-`OPENAI_API_KEY` is required. `OPENAI_MODEL` is optional; if it is not set, the code uses its default model constant.
+`OPENAI_API_KEY` is required and belongs to the configured model server.
+`OPENAI_MODEL` is optional; if it is not set, the code uses its default model
+constant. `OPENAI_BASE_URL` selects a compatible server, including its `/v1` path.
+`OPENAI_TIMEOUT_SECONDS` must be finite and positive, and `OPENAI_MAX_RETRIES`
+must be a nonnegative integer. If omitted, timeout and retry settings retain the
+SDK defaults. `OPENAI_MODEL=auto` requires an explicit `OPENAI_BASE_URL`.
 
 You can also run through the `.venv` Python after `uv sync` has installed the project:
 

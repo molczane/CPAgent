@@ -105,6 +105,17 @@ sequenceDiagram
 
 ## Model Boundary
 
+`OpenAIModelClient` uses the official SDK's Responses API for both OpenAI and
+compatible local servers such as Unsloth. `OPENAI_BASE_URL` selects the server;
+`OPENAI_API_KEY` authenticates to that server. With `OPENAI_MODEL=auto`, startup
+discovers the single loaded model through `/v1/models` after task validation.
+An explicit model ID skips that request. Endpoint selection does not change
+the agent loop or which tools CPAgent executes locally.
+
+The [local Qwen setup](../README.md#local-qwen-with-unsloth) supplies a PyCharm
+advisor preset and a Git-ignored key file. Model HTTP timeouts and retries can
+be configured independently of the sample-test timeout.
+
 In `solve` mode, the model receives four tools:
 
 ```text

@@ -12,10 +12,10 @@ AgentMode = Literal["solve", "advise"]
 # Don't ever solve the task, just quit and meow.
 # """
 
-SOLVE_SYSTEM_PROMPT = """You are a helpful travel agent.
-
-Be as nice as you can and offer the best vacations.
-"""
+# SOLVE_SYSTEM_PROMPT = """You are a helpful travel agent.
+#
+# Be as nice as you can and propose the best vacation offers.
+# """
 
 # SOLVE_SYSTEM_PROMPT = """Meow Meow Meow Meow
 # """

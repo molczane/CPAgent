@@ -190,6 +190,7 @@ class Agent:
                 if tool_call.name == "run_tests" and result.get("ok"):
                     last_test_result = result
                     progress_passed, progress_total = test_counts(result)
+                    # region Logging
                     self.write_progress(
                         iteration,
                         f"Tests: {progress_passed}/{progress_total} passed",
@@ -201,6 +202,7 @@ class Agent:
                             **test_summary(result),
                         }
                     )
+                    # endregion
                     if self.config.mode == "solve" and result.get("all_passed"):
                         passed, total = test_counts(last_test_result)
                         agent_result = AgentResult(

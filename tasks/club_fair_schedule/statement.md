@@ -6,8 +6,6 @@ For each presentation you know its start time and end time. You can attend two p
 
 Find the maximum number of presentations you can attend.
 
-This is the classic interval scheduling problem from competitive programming.
-
 ## Input
 
 The first line contains an integer `n`.

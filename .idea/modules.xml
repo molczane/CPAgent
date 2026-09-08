@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/CPAgent.iml" filepath="$PROJECT_DIR$/.idea/CPAgent.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/cp-agent.iml" filepath="$PROJECT_DIR$/.idea/cp-agent.iml" />
     </modules>
   </component>
 </project>

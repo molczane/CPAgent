@@ -1,5 +1,33 @@
 from __future__ import annotations
 
+"""OpenAI Responses API client for the competitive programming agent.
+
+Teaching mental model:
+This module connects the agent's message loop to the OpenAI SDK using OpenAI's
+Responses API (`client.responses.create`) rather than standard Chat Completions.
+
+Why the Responses API?
+1. Separation of Instructions vs. Conversation Input:
+   - `instructions`: System-level prompts and rules defining agent identity and constraints.
+   - `input`: The conversation history, composed of user requests, assistant tool
+     calls (`function_call`), and tool execution results (`function_call_output`).
+2. Uniform Tool-Calling Structure:
+   - Tool calls and assistant responses are returned as structured items in `response.output`,
+     enabling uniform handling across OpenAI models and local model servers (e.g. Unsloth / Qwen).
+
+Dataflow for each iteration:
+    Agent messages
+          │
+          ▼
+    build_responses_input(messages) ──> (instructions, response_input)
+          │
+          ▼
+    client.responses.create(...) ──────> raw SDK response
+          │
+          ▼
+    parse_response(response) ──────────> ModelResponse(final_text, tool_calls)
+"""
+
 import json
 import math
 from typing import Any, Mapping
@@ -13,7 +41,14 @@ class OpenAIClientError(RuntimeError):
     """Raised when the OpenAI SDK is unavailable or a request fails."""
 
 
+# =============================================================================
+# 1. OpenAI Model Client
+# =============================================================================
+
+
 class OpenAIModelClient:
+    """Wraps the OpenAI SDK Responses API to fulfill the agent's ModelClient protocol."""
+
     def __init__(
         self,
         *,
@@ -34,6 +69,7 @@ class OpenAIModelClient:
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> "OpenAIModelClient":
+        """Configure client from environment variables (e.g. OPENAI_API_KEY, OPENAI_MODEL)."""
         model = environ.get("OPENAI_MODEL") or DEFAULT_MODEL
         base_url = environ.get("OPENAI_BASE_URL") or None
         timeout_seconds = None
@@ -71,6 +107,7 @@ class OpenAIModelClient:
         return client
 
     def find_loaded_model(self) -> str:
+        """Query a local server via GET /models to discover the loaded model."""
         try:
             models = self.client.models.list()
         except Exception as exc:
@@ -92,6 +129,13 @@ class OpenAIModelClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> ModelResponse:
+        """Send message history and tool schemas to the model; return parsed response.
+
+        Steps:
+        1. Translate role-based messages to Responses API instructions and input items.
+        2. Call client.responses.create with model, instructions, input, and tools.
+        3. Parse the output into a ModelResponse (tool calls or final text).
+        """
         instructions, response_input = build_responses_input(messages)
         try:
             response = self.client.responses.create(
@@ -106,64 +150,22 @@ class OpenAIModelClient:
         return parse_response(response)
 
 
-def make_sdk_client(
-    api_key: str | None,
-    *,
-    base_url: str | None = None,
-    timeout_seconds: float | None = None,
-    max_retries: int | None = None,
-) -> Any:
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise OpenAIClientError(
-            "The openai package is not installed. Install project dependencies first."
-        ) from exc
-
-    options: dict[str, Any] = {}
-    if api_key:
-        options["api_key"] = api_key
-    if base_url:
-        options["base_url"] = base_url
-    if timeout_seconds is not None:
-        options["timeout"] = timeout_seconds
-    if max_retries is not None:
-        options["max_retries"] = max_retries
-    return OpenAI(**options)
-
-
-def model_api_error(exc: Exception) -> OpenAIClientError:
-    from openai import APIConnectionError, APITimeoutError
-
-    status = getattr(exc, "status_code", None)
-    if status in {401, 403}:
-        message = (
-            "Authentication failed. Check OPENAI_API_KEY for the configured model server."
-        )
-    elif isinstance(exc, APITimeoutError):
-        message = (
-            "Model request timed out. Check the server or increase OPENAI_TIMEOUT_SECONDS."
-        )
-    elif isinstance(exc, APIConnectionError):
-        message = (
-            "Cannot connect to the model server. "
-            "Check OPENAI_BASE_URL and that the server is running."
-        )
-    elif status == 404:
-        message = (
-            "Endpoint or model not found. Check OPENAI_BASE_URL (including /v1), "
-            "OPENAI_MODEL, and Responses API support."
-        )
-    elif isinstance(status, int):
-        message = f"Model API request failed (HTTP {status}). Check the model server logs."
-    else:
-        message = "Model API request failed. Check the model server logs."
-    return OpenAIClientError(message)
+# =============================================================================
+# 2. Responses API Payload Translation (Messages <-> API Items)
+# =============================================================================
 
 
 def build_responses_input(
     messages: list[dict[str, Any]],
 ) -> tuple[str | None, list[dict[str, Any]]]:
+    """Convert standard chat messages into Responses API (instructions, input) format.
+
+    Role mapping:
+    - 'system'    -> extracted into instructions string
+    - 'user'      -> {'role': 'user', 'content': ...}
+    - 'assistant' -> previous response items or explicit 'function_call' items
+    - 'tool'      -> {'type': 'function_call_output', 'call_id': ..., 'output': ...}
+    """
     instructions: list[str] = []
     response_input: list[dict[str, Any]] = []
 
@@ -171,15 +173,18 @@ def build_responses_input(
         role = message.get("role")
         content = message.get("content") or ""
 
+        # System messages define instructions outside the conversation turns
         if role == "system":
             if content:
                 instructions.append(content)
             continue
 
+        # User messages represent human/task instructions
         if role == "user":
             response_input.append({"role": "user", "content": content})
             continue
 
+        # Assistant messages contain prior model thoughts and requested tool calls
         if role == "assistant":
             response_items = message.get("response_items") or []
             if response_items:
@@ -202,6 +207,7 @@ def build_responses_input(
                 )
             continue
 
+        # Tool messages provide the execution observation back to the model
         if role == "tool":
             response_input.append(
                 {
@@ -215,6 +221,11 @@ def build_responses_input(
 
 
 def parse_response(response: Any) -> ModelResponse:
+    """Parse the raw Responses API response into a structured ModelResponse.
+
+    If any function_call items are present in response.output, they are returned
+    as tool calls for local execution. Otherwise, the final assistant text is returned.
+    """
     output_items = get_output_items(response)
     tool_calls: list[ToolCall] = []
     response_items = tuple(to_response_input_item(item) for item in output_items)
@@ -243,11 +254,13 @@ def parse_response(response: Any) -> ModelResponse:
 
 
 def get_output_items(response: Any) -> list[Any]:
+    """Extract the list of output items from the SDK response object or dictionary."""
     output = get_value(response, "output", [])
     return list(output or [])
 
 
 def to_response_input_item(item: Any) -> dict[str, Any]:
+    """Convert an SDK output item into a dictionary suitable for subsequent input payloads."""
     if isinstance(item, dict):
         return dict(item)
     if hasattr(item, "model_dump"):
@@ -271,6 +284,7 @@ def to_response_input_item(item: Any) -> dict[str, Any]:
 
 
 def extract_text(response: Any) -> str:
+    """Extract final text content from either output_text or message content items."""
     output_text = get_value(response, "output_text")
     if isinstance(output_text, str):
         return output_text
@@ -287,6 +301,7 @@ def extract_text(response: Any) -> str:
 
 
 def parse_arguments(raw_arguments: Any) -> dict[str, Any]:
+    """Safely decode JSON string arguments into a Python dictionary."""
     if isinstance(raw_arguments, dict):
         return raw_arguments
     if not isinstance(raw_arguments, str):
@@ -301,6 +316,69 @@ def parse_arguments(raw_arguments: Any) -> dict[str, Any]:
 
 
 def get_value(item: Any, key: str, default: Any = None) -> Any:
+    """Safely access a property or dict key on an object."""
     if isinstance(item, dict):
         return item.get(key, default)
     return getattr(item, key, default)
+
+
+# =============================================================================
+# 3. SDK Client Factory & Error Handling
+# =============================================================================
+
+
+def make_sdk_client(
+    api_key: str | None,
+    *,
+    base_url: str | None = None,
+    timeout_seconds: float | None = None,
+    max_retries: int | None = None,
+) -> Any:
+    """Instantiate the official OpenAI SDK client with given configuration."""
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise OpenAIClientError(
+            "The openai package is not installed. Install project dependencies first."
+        ) from exc
+
+    options: dict[str, Any] = {}
+    if api_key:
+        options["api_key"] = api_key
+    if base_url:
+        options["base_url"] = base_url
+    if timeout_seconds is not None:
+        options["timeout"] = timeout_seconds
+    if max_retries is not None:
+        options["max_retries"] = max_retries
+    return OpenAI(**options)
+
+
+def model_api_error(exc: Exception) -> OpenAIClientError:
+    """Translate raw OpenAI SDK exceptions into actionable, student-friendly errors."""
+    from openai import APIConnectionError, APITimeoutError
+
+    status = getattr(exc, "status_code", None)
+    if status in {401, 403}:
+        message = (
+            "Authentication failed. Check OPENAI_API_KEY for the configured model server."
+        )
+    elif isinstance(exc, APITimeoutError):
+        message = (
+            "Model request timed out. Check the server or increase OPENAI_TIMEOUT_SECONDS."
+        )
+    elif isinstance(exc, APIConnectionError):
+        message = (
+            "Cannot connect to the model server. "
+            "Check OPENAI_BASE_URL and that the server is running."
+        )
+    elif status == 404:
+        message = (
+            "Endpoint or model not found. Check OPENAI_BASE_URL (including /v1), "
+            "OPENAI_MODEL, and Responses API support."
+        )
+    elif isinstance(status, int):
+        message = f"Model API request failed (HTTP {status}). Check the model server logs."
+    else:
+        message = "Model API request failed. Check the model server logs."
+    return OpenAIClientError(message)

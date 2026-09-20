@@ -1,5 +1,26 @@
 from __future__ import annotations
 
+"""Tools and tool execution for the competitive programming agent.
+
+Teaching mental model:
+In AI agents, tools have two sides:
+1. Schema (what the LLM sees):
+   A JSON Schema description that defines the tool's name, purpose, and
+   expected arguments. The LLM reads this schema to decide when and how
+   to call the tool.
+2. Dispatcher (what Python executes):
+   The local Python function that actually runs the action (reading files,
+   executing tests, modifying code) and returns structured observations
+   back to the agent loop.
+
+Why tools require a 'reason' parameter:
+Every tool schema includes a mandatory `reason` argument (`PUBLIC_REASON_ARG`).
+Forcing the model to explain why it is invoking a tool before execution:
+- Encourages the model to plan its next action,
+- Provides human-readable progress messages in the CLI and trace logs,
+- Avoids ungrounded, blind tool calls.
+"""
+
 import sys
 from copy import deepcopy
 from dataclasses import dataclass
@@ -29,6 +50,10 @@ class ToolContext:
     max_stderr_chars: int = test_runner.DEFAULT_MAX_STDERR_CHARS
     python_executable: str = sys.executable
 
+
+# =============================================================================
+# 1. Tool Schemas (What the Model Sees)
+# =============================================================================
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -105,6 +130,7 @@ ADVISE_TOOL_NAMES = ("list_files", "read_file", "run_tests")
 def get_tool_definitions(
     tool_names: tuple[str, ...] = SOLVE_TOOL_NAMES,
 ) -> list[dict[str, Any]]:
+    """Return a deep copy of tool schemas filtered by the allowed tool names."""
     allowed = set(tool_names)
     return [
         deepcopy(definition)
@@ -113,11 +139,17 @@ def get_tool_definitions(
     ]
 
 
+# =============================================================================
+# 2. Tool Dispatcher (Routing Model Calls to Python Functions)
+# =============================================================================
+
+
 def dispatch_tool(
     name: str,
     args: dict[str, Any],
     context: ToolContext,
 ) -> dict[str, Any]:
+    """Validate tool call arguments and dispatch to the matching local handler."""
     handlers: dict[str, Callable[[dict[str, Any], ToolContext], dict[str, Any]]] = {
         "list_files": _list_files,
         "read_file": _read_file,
@@ -136,16 +168,24 @@ def dispatch_tool(
 
 
 def strip_public_reason(args: dict[str, Any]) -> dict[str, Any]:
+    """Remove the model's public 'reason' argument before calling the handler."""
     return {key: value for key, value in args.items() if key != PUBLIC_REASON_ARG}
 
 
+# =============================================================================
+# 3. Local Tool Implementations (Executing Safe Actions in Workspace)
+# =============================================================================
+
+
 def _list_files(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """List readable task files inside the workspace."""
     if args:
         return {"ok": False, "error": "list_files does not accept arguments"}
     return {"files": context.workspace.list_files()}
 
 
 def _read_file(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """Read a permitted workspace file up to the character limit."""
     if set(args) != {"path"} or not isinstance(args.get("path"), str):
         return {"ok": False, "error": "read_file requires string argument: path"}
     return context.workspace.read_file(
@@ -155,6 +195,7 @@ def _read_file(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
 
 
 def _write_solution(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """Atomically write new content to solution.py with automatic backup."""
     if set(args) != {"content"} or not isinstance(args.get("content"), str):
         return {
             "ok": False,
@@ -164,6 +205,7 @@ def _write_solution(args: dict[str, Any], context: ToolContext) -> dict[str, Any
 
 
 def _run_tests(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """Execute solution.py against input/output test fixtures and return results."""
     if args:
         return {"ok": False, "error": "run_tests does not accept arguments"}
     return test_runner.run_tests(

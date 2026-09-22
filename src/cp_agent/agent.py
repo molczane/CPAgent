@@ -241,6 +241,20 @@ class Agent:
             tool_results=tool_results,
         )
 
+    def dispatch_tool_call(self, tool_call: ToolCall) -> dict[str, Any]:
+        if (
+            self.config.mode == "advise"
+            and tool_call.name not in tool_names_for_mode(self.config.mode)
+        ):
+            return {
+                "ok": False,
+                "error": (
+                    f"Tool not allowed in {self.config.mode} mode: "
+                    f"{tool_call.name}"
+                ),
+            }
+        return dispatch_tool(tool_call.name, tool_call.args, self.tool_context)
+
     def _finish(
         self,
         *,
@@ -269,20 +283,6 @@ class Agent:
         )
         self.write_final_trace(result)
         return result
-
-    def dispatch_tool_call(self, tool_call: ToolCall) -> dict[str, Any]:
-        if (
-            self.config.mode == "advise"
-            and tool_call.name not in tool_names_for_mode(self.config.mode)
-        ):
-            return {
-                "ok": False,
-                "error": (
-                    f"Tool not allowed in {self.config.mode} mode: "
-                    f"{tool_call.name}"
-                ),
-            }
-        return dispatch_tool(tool_call.name, tool_call.args, self.tool_context)
 
     def write_trace(self, event: dict[str, Any]) -> None:
         if self.trace:

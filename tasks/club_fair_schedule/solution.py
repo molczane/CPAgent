@@ -15,10 +15,8 @@ def main() -> None:
         intervals.append((start, end))
         index += 2
 
-    # Greedy: to maximize the number of non-overlapping presentations,
-    # sort by end time and always take the next one that starts at or after
-    # the current one ends. Back-to-back (end == start) is allowed.
-    intervals.sort(key=lambda x: x[1])
+    # Greedy: sort by start time and pick the next non-overlapping presentation
+    intervals.sort(key=lambda x: x[0])
 
     answer = 0
     current_end = -1

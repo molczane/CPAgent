@@ -320,7 +320,7 @@ class OpenAIClientTests(unittest.TestCase):
         self.assertEqual(call["instructions"], "instructions")
         self.assertEqual(
             [tool["name"] for tool in call["tools"]],
-            ["list_files", "read_file", "write_solution", "run_tests"],
+            ["list_files", "read_file", "write_solution", "edit_solution", "run_tests"],
         )
 
     def test_parse_response_returns_tool_calls(self):
@@ -372,6 +372,78 @@ class OpenAIClientTests(unittest.TestCase):
 
         self.assertEqual(result.final_text, "All tests pass.")
         self.assertEqual(result.response_items[0]["type"], "message")
+
+    def test_parse_response_extracts_reasoning_from_content(self):
+        response = {
+            "output": [
+                {
+                    "type": "reasoning",
+                    "content": [
+                        {"type": "reasoning_text", "text": "Let me think about this problem."},
+                    ],
+                },
+                {
+                    "type": "message",
+                    "content": [
+                        {"type": "output_text", "text": "The answer is 42."},
+                    ],
+                },
+            ]
+        }
+
+        result = parse_response(response)
+
+        self.assertEqual(result.final_text, "The answer is 42.")
+        self.assertEqual(result.thinking, "Let me think about this problem.")
+
+    def test_parse_response_extracts_multiple_reasoning_parts(self):
+        response = {
+            "output": [
+                {
+                    "type": "reasoning",
+                    "content": [
+                        {"type": "reasoning_text", "text": "First thought."},
+                        {"type": "reasoning_text", "text": "Second thought."},
+                    ],
+                },
+                {
+                    "type": "message",
+                    "content": [
+                        {"type": "output_text", "text": "Final answer."},
+                    ],
+                },
+            ]
+        }
+
+        result = parse_response(response)
+
+        self.assertEqual(result.final_text, "Final answer.")
+        self.assertIn("First thought.", result.thinking)
+        self.assertIn("Second thought.", result.thinking)
+
+    def test_parse_response_reasoning_with_tool_calls(self):
+        response = {
+            "output": [
+                {
+                    "type": "reasoning",
+                    "content": [
+                        {"type": "reasoning_text", "text": "I need to read the file."},
+                    ],
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call-1",
+                    "name": "read_file",
+                    "arguments": '{"path": "statement.md"}',
+                },
+            ]
+        }
+
+        result = parse_response(response)
+
+        self.assertEqual(result.thinking, "I need to read the file.")
+        self.assertEqual(len(result.tool_calls), 1)
+        self.assertEqual(result.tool_calls[0].name, "read_file")
 
     def test_api_errors_are_wrapped(self):
         client = OpenAIModelClient(

@@ -45,6 +45,7 @@ class ModelResponse:
     final_text: str | None = None
     tool_calls: tuple[ToolCall, ...] = ()
     response_items: tuple[dict[str, Any], ...] = ()
+    thinking: str | None = None
 
 
 class ModelClient(Protocol):
@@ -59,7 +60,7 @@ class ModelClient(Protocol):
 @dataclass(frozen=True)
 class AgentConfig:
     mode: AgentMode = "solve"
-    max_iterations: int = 5
+    max_iterations: int = 7
     timeout_seconds: float = test_runner.DEFAULT_TIMEOUT_SECONDS
     max_file_read_chars: int = DEFAULT_MAX_FILE_READ_CHARS
     max_stdout_chars: int = test_runner.DEFAULT_MAX_STDOUT_CHARS
@@ -108,6 +109,7 @@ class Agent:
         )
 
     def run(self) -> AgentResult:
+        # CONTEXT
         messages = [
             {"role": "system", "content": system_prompt(self.config.mode)},
             {
@@ -133,8 +135,14 @@ class Agent:
                     "iteration": iteration,
                     "tool_calls": [call.name for call in model_response.tool_calls],
                     "final": not bool(model_response.tool_calls),
+                    "thinking": model_response.thinking,
                 }
             )
+            # Display thinking content in verbose mode
+            if self.config.verbose and model_response.thinking:
+                stream = self.config.progress_stream or sys.stdout
+                print(f"[{iteration}] Thinking:", file=stream, flush=True)
+                print(model_response.thinking, file=stream, flush=True)
             messages.append(model_message(model_response))
 
             # -----------------------------------------------------------------

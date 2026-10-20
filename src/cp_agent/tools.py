@@ -108,6 +108,35 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
+        "name": "edit_solution",
+        "description": (
+            "Apply a targeted search-and-replace edit to solution.py. "
+            "The search text must appear exactly once. "
+            "Use this for small fixes instead of rewriting the whole file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {
+                    "type": "string",
+                    "description": (
+                        "Exact text to find in solution.py. "
+                        "Must match exactly once, including whitespace."
+                    ),
+                },
+                "replace": {
+                    "type": "string",
+                    "description": "Replacement text that will replace the matched search text.",
+                },
+                PUBLIC_REASON_ARG: PUBLIC_REASON_PROPERTY,
+            },
+            "required": ["search", "replace", PUBLIC_REASON_ARG],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
         "name": "run_tests",
         "description": "Run solution.py against matching tests/*.in and tests/*.out.",
         "parameters": {
@@ -123,7 +152,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
-SOLVE_TOOL_NAMES = ("list_files", "read_file", "write_solution", "run_tests")
+SOLVE_TOOL_NAMES = ("list_files", "read_file", "write_solution", "edit_solution", "run_tests")
 ADVISE_TOOL_NAMES = ("list_files", "read_file", "run_tests")
 
 
@@ -154,6 +183,7 @@ def dispatch_tool(
         "list_files": _list_files,
         "read_file": _read_file,
         "write_solution": _write_solution,
+        "edit_solution": _edit_solution,
         "run_tests": _run_tests,
     }
 
@@ -202,6 +232,47 @@ def _write_solution(args: dict[str, Any], context: ToolContext) -> dict[str, Any
             "error": "write_solution requires string argument: content",
         }
     return context.workspace.write_solution(args["content"])
+
+
+def _edit_solution(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """Apply a search-and-replace edit to solution.py."""
+    if set(args) != {"search", "replace"}:
+        return {
+            "ok": False,
+            "error": "edit_solution requires string arguments: search, replace",
+        }
+    if not isinstance(args.get("search"), str) or not isinstance(args.get("replace"), str):
+        return {
+            "ok": False,
+            "error": "edit_solution requires string arguments: search, replace",
+        }
+    search_text = args["search"]
+    replace_text = args["replace"]
+
+    solution_path = context.workspace.root / "solution.py"
+    try:
+        content = solution_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"ok": False, "error": "solution.py not found"}
+
+    count = content.count(search_text)
+    if count == 0:
+        return {
+            "ok": False,
+            "error": f"Search text not found in solution.py",
+        }
+    if count > 1:
+        return {
+            "ok": False,
+            "error": (
+                f"Search text appears {count} times in solution.py. "
+                "It must appear exactly once for a safe edit. "
+                "Please provide a more specific search string, or use write_solution instead."
+            ),
+        }
+
+    new_content = content.replace(search_text, replace_text, 1)
+    return context.workspace.write_solution(new_content)
 
 
 def _run_tests(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:

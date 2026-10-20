@@ -40,7 +40,7 @@ class ToolsTests(unittest.TestCase):
     def test_tool_definitions_expose_exact_v0_tools_with_strict_schemas(self):
         self.assertEqual(
             [definition["name"] for definition in TOOL_DEFINITIONS],
-            ["list_files", "read_file", "write_solution", "run_tests"],
+            ["list_files", "read_file", "write_solution", "edit_solution", "run_tests"],
         )
         for definition in TOOL_DEFINITIONS:
             self.assertEqual(definition["type"], "function")
@@ -56,7 +56,7 @@ class ToolsTests(unittest.TestCase):
     def test_tool_definitions_can_be_limited_to_advisor_read_only_tools(self):
         self.assertEqual(
             [definition["name"] for definition in get_tool_definitions(SOLVE_TOOL_NAMES)],
-            ["list_files", "read_file", "write_solution", "run_tests"],
+            ["list_files", "read_file", "write_solution", "edit_solution", "run_tests"],
         )
         self.assertEqual(
             [definition["name"] for definition in get_tool_definitions(ADVISE_TOOL_NAMES)],
@@ -207,6 +207,115 @@ class ToolsTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(outside_content, "outside\n")
         self.assertEqual(solution_content, "print('wrong')\n")
+
+    def test_edit_solution_tool_applies_targeted_edit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_task(Path(tmp))
+            (task / "solution.py").write_text(
+                "import sys\nprint('wrong')\n", encoding="utf-8"
+            )
+            context = self.make_context(task)
+
+            result = dispatch_tool(
+                "edit_solution",
+                {
+                    "search": "print('wrong')",
+                    "replace": "print(sys.stdin.read().strip())",
+                    "reason": "Fix the print statement",
+                },
+                context,
+            )
+
+            solution = (task / "solution.py").read_text(encoding="utf-8")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            solution, "import sys\nprint(sys.stdin.read().strip())\n"
+        )
+
+    def test_edit_solution_tool_rejects_search_not_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_task(Path(tmp))
+            context = self.make_context(task)
+
+            result = dispatch_tool(
+                "edit_solution",
+                {
+                    "search": "this_does_not_exist",
+                    "replace": "replacement",
+                    "reason": "Try to edit",
+                },
+                context,
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("not found", result["error"])
+
+    def test_edit_solution_tool_rejects_duplicate_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_task(Path(tmp))
+            (task / "solution.py").write_text(
+                "x = 1\nx = 2\nprint(x)\n", encoding="utf-8"
+            )
+            context = self.make_context(task)
+
+            result = dispatch_tool(
+                "edit_solution",
+                {
+                    "search": "x = ",
+                    "replace": "y = ",
+                    "reason": "Rename variable",
+                },
+                context,
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("appears", result["error"])
+
+    def test_edit_solution_tool_rejects_invalid_arguments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_task(Path(tmp))
+            context = self.make_context(task)
+
+            results = [
+                dispatch_tool(
+                    "edit_solution",
+                    {"search": "a", "reason": "missing replace"},
+                    context,
+                ),
+                dispatch_tool(
+                    "edit_solution",
+                    {"search": 123, "replace": "b", "reason": "bad type"},
+                    context,
+                ),
+                dispatch_tool(
+                    "edit_solution",
+                    {"search": "a", "replace": "b", "extra": True, "reason": "extra"},
+                    context,
+                ),
+            ]
+
+        self.assertTrue(all(result["ok"] is False for result in results))
+
+    def test_edit_solution_tool_preserves_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task = self.make_task(Path(tmp))
+            context = self.make_context(task)
+
+            result = dispatch_tool(
+                "edit_solution",
+                {
+                    "search": "print('wrong')",
+                    "replace": "print('fixed')",
+                    "reason": "Fix the output",
+                },
+                context,
+            )
+
+            backup = (task / ".solution.py.bak").read_text(encoding="utf-8")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(backup, "print('wrong')\n")
 
 
 if __name__ == "__main__":

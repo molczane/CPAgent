@@ -143,6 +143,7 @@ class OpenAIModelClient:
                 instructions=instructions,
                 input=response_input,
                 tools=tools,
+                reasoning={"effort": "medium"},
             )
         except Exception as exc:  # pragma: no cover - exact SDK errors vary.
             raise model_api_error(exc) from exc
@@ -228,9 +229,24 @@ def parse_response(response: Any) -> ModelResponse:
     """
     output_items = get_output_items(response)
     tool_calls: list[ToolCall] = []
+    thinking_parts: list[str] = []
     response_items = tuple(to_response_input_item(item) for item in output_items)
+
     for item in output_items:
-        if get_value(item, "type") != "function_call":
+        item_type = get_value(item, "type")
+
+        # Extract thinking/reasoning content
+        if item_type == "reasoning":
+            # Unsloth / Qwen returns reasoning in item.content as a list of parts
+            # with type "reasoning_text" and a "text" field
+            for part in get_value(item, "content", []) or []:
+                if get_value(part, "type") == "reasoning_text":
+                    text = get_value(part, "text")
+                    if isinstance(text, str):
+                        thinking_parts.append(text)
+            continue
+
+        if item_type != "function_call":
             continue
         call_id = get_value(item, "call_id") or get_value(item, "id")
         name = get_value(item, "name")
@@ -244,13 +260,20 @@ def parse_response(response: Any) -> ModelResponse:
             )
         )
 
+    thinking = "\n".join(thinking_parts) if thinking_parts else None
+
     if tool_calls:
         return ModelResponse(
             tool_calls=tuple(tool_calls),
             response_items=response_items,
+            thinking=thinking,
         )
 
-    return ModelResponse(final_text=extract_text(response), response_items=response_items)
+    return ModelResponse(
+        final_text=extract_text(response),
+        response_items=response_items,
+        thinking=thinking,
+    )
 
 
 def get_output_items(response: Any) -> list[Any]:

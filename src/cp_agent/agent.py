@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Explicit tool-use agent loop for competitive programming tasks.
 
-Mental Model for Students:
 The agent implements an explicit loop (the canonical ReAct / tool-use cycle):
 1. PROMPT: Send conversation history + available tools to the LLM.
 2. DECIDE: The model responds with either a final answer or one or more tool calls.
